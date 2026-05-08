@@ -1,0 +1,15 @@
+{
+  "nav": {
+    "features": "Features",
+    "pricing": "Pricing",
+    "security": "Security",
+    "login": "Login",
+    "earlyAccess": "Early Access"
+  },
+
+  "hero": {
+    "title": "Payroll-ready HR Software",
+    "subtitle": "Modern HR and payroll platform for Germany.",
+    "cta": "Start Early Access"
+  }
+}

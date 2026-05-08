@@ -1,0 +1,15 @@
+{
+  "nav": {
+    "features": "Funktionen",
+    "pricing": "Preise",
+    "security": "Sicherheit",
+    "login": "Login",
+    "earlyAccess": "Early Access"
+  },
+
+  "hero": {
+    "title": "Payroll-ready HR Software",
+    "subtitle": "Moderne HR- und Payroll-Plattform für Deutschland.",
+    "cta": "Early Access starten"
+  }
+}

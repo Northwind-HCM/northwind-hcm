@@ -21,6 +21,7 @@ type Props = {
   companyId: string;
 };
 
+// redirect to German landing page
 type Employee = {
   id: string;
   firstName?: string;

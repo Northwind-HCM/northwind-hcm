@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import FormField from "./FormField";
+import EmployeeAbsenceRequest from "@/components/EmployeeAbsenceRequest";
 
 type Props = {
   companyId: string;
@@ -49,12 +50,14 @@ type TabKey =
   | "personal"
   | "taxSocial"
   | "bank"
+  | "absence"
   | "notes";
 
 const tabs: { key: TabKey; label: string }[] = [
   { key: "personal", label: "Meine Daten" },
   { key: "taxSocial", label: "Steuer & Sozialversicherung" },
   { key: "bank", label: "Bank" },
+  { key: "absence", label: "Fehlzeiten" },
   { key: "notes", label: "Hinweise" },
 ];
 
@@ -117,6 +120,11 @@ export default function EmployeeSelfServiceForm({
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+
+    if (activeTab === "absence") {
+      return;
+    }
+
     setSaving(true);
     setMessage("");
 
@@ -170,6 +178,7 @@ export default function EmployeeSelfServiceForm({
   const currentTabIndex = tabs.findIndex((tab) => tab.key === activeTab);
   const isFirstTab = currentTabIndex === 0;
   const isLastTab = currentTabIndex === tabs.length - 1;
+  const isAbsenceTab = activeTab === "absence";
 
   if (loading) {
     return <p>Lade Ihre Daten...</p>;
@@ -198,12 +207,37 @@ export default function EmployeeSelfServiceForm({
         <div className="mt-6">
           {activeTab === "personal" && (
             <Section title="Meine Daten">
-              <TextField label="Vorname" value={formData.firstName} onChange={(value) => updateField("firstName", value)} />
-              <TextField label="Nachname" value={formData.lastName} onChange={(value) => updateField("lastName", value)} />
-              <TextField type="date" label="Geburtsdatum" value={formData.birthDate} onChange={(value) => updateField("birthDate", value)} />
-              <TextField label="Geburtsort" value={formData.birthPlace} onChange={(value) => updateField("birthPlace", value)} />
-              <TextField label="Geburtsland" value={formData.birthCountry} onChange={(value) => updateField("birthCountry", value)} />
-              <TextField label="Nationalität" value={formData.nationality} onChange={(value) => updateField("nationality", value)} />
+              <TextField
+                label="Vorname"
+                value={formData.firstName}
+                onChange={(value) => updateField("firstName", value)}
+              />
+              <TextField
+                label="Nachname"
+                value={formData.lastName}
+                onChange={(value) => updateField("lastName", value)}
+              />
+              <TextField
+                type="date"
+                label="Geburtsdatum"
+                value={formData.birthDate}
+                onChange={(value) => updateField("birthDate", value)}
+              />
+              <TextField
+                label="Geburtsort"
+                value={formData.birthPlace}
+                onChange={(value) => updateField("birthPlace", value)}
+              />
+              <TextField
+                label="Geburtsland"
+                value={formData.birthCountry}
+                onChange={(value) => updateField("birthCountry", value)}
+              />
+              <TextField
+                label="Nationalität"
+                value={formData.nationality}
+                onChange={(value) => updateField("nationality", value)}
+              />
 
               <SelectField
                 label="Geschlecht"
@@ -217,26 +251,71 @@ export default function EmployeeSelfServiceForm({
                 ]}
               />
 
-              <TextField label="Straße" value={formData.street} onChange={(value) => updateField("street", value)} />
-              <TextField label="Hausnummer" value={formData.houseNumber} onChange={(value) => updateField("houseNumber", value)} />
-              <TextField label="PLZ" value={formData.zip} onChange={(value) => updateField("zip", value)} />
-              <TextField label="Ort" value={formData.city} onChange={(value) => updateField("city", value)} />
-              <TextField label="Land" value={formData.country} onChange={(value) => updateField("country", value)} />
-              <TextField type="email" label="E-Mail" value={formData.email} onChange={(value) => updateField("email", value)} />
-              <TextField label="Telefon" value={formData.phone} onChange={(value) => updateField("phone", value)} />
+              <TextField
+                label="Straße"
+                value={formData.street}
+                onChange={(value) => updateField("street", value)}
+              />
+              <TextField
+                label="Hausnummer"
+                value={formData.houseNumber}
+                onChange={(value) => updateField("houseNumber", value)}
+              />
+              <TextField
+                label="PLZ"
+                value={formData.zip}
+                onChange={(value) => updateField("zip", value)}
+              />
+              <TextField
+                label="Ort"
+                value={formData.city}
+                onChange={(value) => updateField("city", value)}
+              />
+              <TextField
+                label="Land"
+                value={formData.country}
+                onChange={(value) => updateField("country", value)}
+              />
+              <TextField
+                type="email"
+                label="E-Mail"
+                value={formData.email}
+                onChange={(value) => updateField("email", value)}
+              />
+              <TextField
+                label="Telefon"
+                value={formData.phone}
+                onChange={(value) => updateField("phone", value)}
+              />
             </Section>
           )}
 
           {activeTab === "taxSocial" && (
             <Section title="Steuer & Sozialversicherung">
-              <TextField label="Steuer-ID" value={formData.taxId} onChange={(value) => updateField("taxId", value)} />
-              <TextField label="Sozialversicherungsnummer" value={formData.socialSecurityNumber} onChange={(value) => updateField("socialSecurityNumber", value)} />
-              <TextField label="Krankenkasse" value={formData.healthInsurance} onChange={(value) => updateField("healthInsurance", value)} />
+              <TextField
+                label="Steuer-ID"
+                value={formData.taxId}
+                onChange={(value) => updateField("taxId", value)}
+              />
+              <TextField
+                label="Sozialversicherungsnummer"
+                value={formData.socialSecurityNumber}
+                onChange={(value) =>
+                  updateField("socialSecurityNumber", value)
+                }
+              />
+              <TextField
+                label="Krankenkasse"
+                value={formData.healthInsurance}
+                onChange={(value) => updateField("healthInsurance", value)}
+              />
 
               <SelectField
                 label="Gesetzlich krankenversichert"
                 value={formData.statutoryHealthInsurance}
-                onChange={(value) => updateField("statutoryHealthInsurance", value)}
+                onChange={(value) =>
+                  updateField("statutoryHealthInsurance", value)
+                }
                 options={[
                   ["yes", "Ja"],
                   ["no", "Nein"],
@@ -246,7 +325,9 @@ export default function EmployeeSelfServiceForm({
               <SelectField
                 label="Privat krankenversichert"
                 value={formData.privateHealthInsurance}
-                onChange={(value) => updateField("privateHealthInsurance", value)}
+                onChange={(value) =>
+                  updateField("privateHealthInsurance", value)
+                }
                 options={[
                   ["yes", "Ja"],
                   ["no", "Nein"],
@@ -267,17 +348,39 @@ export default function EmployeeSelfServiceForm({
 
           {activeTab === "bank" && (
             <Section title="Bankdaten">
-              <TextField label="IBAN" value={formData.iban} onChange={(value) => updateField("iban", value)} />
-              <TextField label="BIC" value={formData.bic} onChange={(value) => updateField("bic", value)} />
-              <TextField label="Bank" value={formData.bank} onChange={(value) => updateField("bank", value)} />
+              <TextField
+                label="IBAN"
+                value={formData.iban}
+                onChange={(value) => updateField("iban", value)}
+              />
+              <TextField
+                label="BIC"
+                value={formData.bic}
+                onChange={(value) => updateField("bic", value)}
+              />
+              <TextField
+                label="Bank"
+                value={formData.bank}
+                onChange={(value) => updateField("bank", value)}
+              />
             </Section>
+          )}
+
+          {activeTab === "absence" && (
+            <EmployeeAbsenceRequest
+              companyId={companyId}
+              employeeId={employeeId}
+            />
           )}
 
           {activeTab === "notes" && (
             <section className="space-y-4">
               <h2 className="text-xl font-semibold">Hinweise</h2>
 
-              <FormField label="Hinweise" helper="Optional: Ergänzen Sie Hinweise oder Besonderheiten.">
+              <FormField
+                label="Hinweise"
+                helper="Optional: Ergänzen Sie Hinweise oder Besonderheiten."
+              >
                 <textarea
                   className="min-h-40 w-full rounded border p-3"
                   value={formData.notes}
@@ -312,13 +415,15 @@ export default function EmployeeSelfServiceForm({
         </div>
 
         <div className="flex items-center gap-4">
-          <button
-            type="submit"
-            disabled={saving}
-            className="rounded-xl bg-blue-900 px-6 py-3 font-medium text-white disabled:opacity-50"
-          >
-            {saving ? "Speichert..." : "Daten speichern"}
-          </button>
+          {!isAbsenceTab && (
+            <button
+              type="submit"
+              disabled={saving}
+              className="rounded-xl bg-blue-900 px-6 py-3 font-medium text-white disabled:opacity-50"
+            >
+              {saving ? "Speichert..." : "Daten speichern"}
+            </button>
+          )}
 
           {message && <p className="text-sm text-gray-700">{message}</p>}
         </div>

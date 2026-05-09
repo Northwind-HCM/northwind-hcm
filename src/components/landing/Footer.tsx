@@ -65,7 +65,7 @@ export default function Footer() {
 
             <div className="space-y-2">
               <Link
-                href="/client/login"
+                href="/login"
                 className="block text-gray-600 hover:text-blue-900"
               >
                 Login

@@ -12,7 +12,6 @@ export default function HomePage() {
       <Navbar />
       <HeroSection />
       <FeatureGrid />
-      <FeatureGrid />
 <PricingSection />
 <SecuritySection />
 <Footer />

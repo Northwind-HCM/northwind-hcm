@@ -12,16 +12,15 @@ import {
   serverTimestamp,
   updateDoc,
 } from "firebase/firestore";
+import { onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "../lib/firebase";
 import FormField from "./FormField";
-import { onAuthStateChanged } from "firebase/auth";
 import { canApproveAbsence, type AppUser } from "../lib/auth/roles";
 
 type Props = {
   companyId: string;
 };
 
-// redirect to German landing page
 type Employee = {
   id: string;
   firstName?: string;
@@ -29,33 +28,118 @@ type Employee = {
   email?: string;
 };
 
+type AbsenceStatus = "requested" | "approved" | "rejected";
+
 type Absence = {
   id: string;
   employeeId?: string;
   employeeName?: string;
   employeeEmail?: string;
   absenceType?: string;
+  absenceLabel?: string;
   startDate?: string;
   endDate?: string;
-  status?: "requested" | "approved" | "rejected";
+  status?: AbsenceStatus;
   notes?: string;
+  requiresDocument?: boolean;
+  payrollRelevant?: boolean;
 };
 
 const inputClass = "w-full rounded border p-3";
 
 const absenceTypes = [
-  { value: "vacation", label: "Urlaub" },
-  { value: "sickness", label: "Krankheit" },
-  { value: "unpaid_leave", label: "Unbezahlte Freistellung" },
-  { value: "maternity_leave", label: "Mutterschutz" },
-  { value: "parental_leave", label: "Elternzeit" },
-  { value: "special_leave", label: "Sonderurlaub" },
-  { value: "care_leave", label: "Pflegezeit" },
-  { value: "other", label: "Sonstige Fehlzeit" },
+  {
+    value: "vacation",
+    label: "Urlaub",
+    requiresDocument: false,
+    payrollRelevant: true,
+  },
+  {
+    value: "sickness_without_certificate",
+    label: "Krankheit ohne Attest",
+    requiresDocument: false,
+    payrollRelevant: true,
+  },
+  {
+    value: "sickness_with_certificate",
+    label: "Krankheit mit Attest / eAU",
+    requiresDocument: true,
+    payrollRelevant: true,
+  },
+  {
+    value: "child_sickness",
+    label: "Kind krank",
+    requiresDocument: true,
+    payrollRelevant: true,
+  },
+  {
+    value: "maternity_protection",
+    label: "Mutterschutz",
+    requiresDocument: true,
+    payrollRelevant: true,
+  },
+  {
+    value: "parental_leave",
+    label: "Elternzeit",
+    requiresDocument: true,
+    payrollRelevant: true,
+  },
+  {
+    value: "unpaid_leave",
+    label: "Unbezahlte Freistellung",
+    requiresDocument: true,
+    payrollRelevant: true,
+  },
+  {
+    value: "special_leave",
+    label: "Sonderurlaub",
+    requiresDocument: false,
+    payrollRelevant: true,
+  },
+  {
+    value: "care_leave",
+    label: "Pflegezeit",
+    requiresDocument: true,
+    payrollRelevant: true,
+  },
+  {
+    value: "public_holiday",
+    label: "Feiertag",
+    requiresDocument: false,
+    payrollRelevant: false,
+  },
+  {
+    value: "time_off_in_lieu",
+    label: "Freizeitausgleich",
+    requiresDocument: false,
+    payrollRelevant: true,
+  },
+  {
+    value: "other",
+    label: "Sonstige Abwesenheit",
+    requiresDocument: false,
+    payrollRelevant: true,
+  },
 ];
 
+function getAbsenceType(value?: string) {
+  return absenceTypes.find((item) => item.value === value);
+}
+
 function getAbsenceLabel(value?: string) {
-  return absenceTypes.find((item) => item.value === value)?.label || value || "-";
+  return getAbsenceType(value)?.label || value || "-";
+}
+
+function getStatusLabel(status?: AbsenceStatus) {
+  if (status === "approved") return "Genehmigt";
+  if (status === "rejected") return "Abgelehnt";
+  return "Beantragt";
+}
+
+function getStatusClass(status?: AbsenceStatus) {
+  if (status === "approved") return "bg-green-100 text-green-800";
+  if (status === "rejected") return "bg-red-100 text-red-800";
+  return "bg-yellow-100 text-yellow-800";
 }
 
 function canApproveForEmployee(
@@ -83,40 +167,39 @@ export default function AbsenceManager({ companyId }: Props) {
     absenceType: "",
     startDate: "",
     endDate: "",
-    status: "requested",
     notes: "",
   });
 
-useEffect(() => {
-  const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-    if (!firebaseUser) {
-      setUser(null);
-      return;
-    }
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (!firebaseUser) {
+        setUser(null);
+        return;
+      }
 
-    const userRef = doc(db, "users", firebaseUser.uid);
-    const userSnap = await getDoc(userRef);
+      const userRef = doc(db, "users", firebaseUser.uid);
+      const userSnap = await getDoc(userRef);
 
-    if (!userSnap.exists()) {
-      setUser(null);
-      return;
-    }
+      if (!userSnap.exists()) {
+        setUser(null);
+        return;
+      }
 
-    const data = userSnap.data();
+      const data = userSnap.data();
 
-    setUser({
-      uid: firebaseUser.uid,
-      email: data.email,
-      role: data.role,
-      companyId: data.companyId,
-      employeeId: data.employeeId,
-      accessScope: data.accessScope ?? "company",
-      teamEmployeeIds: data.teamEmployeeIds ?? [],
+      setUser({
+        uid: firebaseUser.uid,
+        email: data.email,
+        role: data.role,
+        companyId: data.companyId,
+        employeeId: data.employeeId,
+        accessScope: data.accessScope ?? "company",
+        teamEmployeeIds: data.teamEmployeeIds ?? [],
+      });
     });
-  });
 
-  return () => unsubscribe();
-}, []);
+    return () => unsubscribe();
+  }, []);
 
   async function loadData() {
     setLoading(true);
@@ -162,10 +245,7 @@ useEffect(() => {
     setFormData((prev) => ({ ...prev, [key]: value }));
   }
 
-  async function updateStatus(
-    absence: Absence,
-    status: "approved" | "rejected"
-  ) {
+  async function updateStatus(absence: Absence, status: AbsenceStatus) {
     if (!canApproveForEmployee(user, companyId, absence.employeeId)) {
       alert("Keine Berechtigung");
       return;
@@ -175,25 +255,6 @@ useEffect(() => {
       status,
       updatedAt: new Date().toISOString(),
     });
-
-    if (absence.employeeEmail) {
-      await fetch("/api/absence-notification", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          to: absence.employeeEmail,
-          subject:
-            status === "approved"
-              ? "Ihr Antrag wurde genehmigt"
-              : "Ihr Antrag wurde abgelehnt",
-          message: `${getAbsenceLabel(absence.absenceType)} vom ${
-            absence.startDate || "-"
-          } bis ${absence.endDate || "-"}`,
-        }),
-      });
-    }
 
     await loadData();
   }
@@ -208,15 +269,25 @@ useEffect(() => {
       return;
     }
 
+    if (!formData.absenceType || !formData.startDate || !formData.endDate) {
+      setMessage("Bitte Fehlzeitart und Zeitraum vollständig ausfüllen.");
+      return;
+    }
+
     if (!canApproveForEmployee(user, companyId, employee.id)) {
       setMessage("Keine Berechtigung zum Anlegen dieser Fehlzeit.");
       return;
     }
 
+    const absenceType = getAbsenceType(formData.absenceType);
+
     await addDoc(collection(db, "companies", companyId, "absences"), {
       ...formData,
       employeeName: `${employee.firstName || ""} ${employee.lastName || ""}`.trim(),
       employeeEmail: employee.email || "",
+      absenceLabel: absenceType?.label || "",
+      requiresDocument: absenceType?.requiresDocument ?? false,
+      payrollRelevant: absenceType?.payrollRelevant ?? true,
       status: "requested",
       createdAt: serverTimestamp(),
       updatedAt: new Date().toISOString(),
@@ -227,11 +298,10 @@ useEffect(() => {
       absenceType: "",
       startDate: "",
       endDate: "",
-      status: "requested",
       notes: "",
     });
 
-    setMessage("Gespeichert ✅");
+    setMessage("Fehlzeit gespeichert ✅");
     await loadData();
   }
 
@@ -250,7 +320,7 @@ useEffect(() => {
       <div>
         <h1 className="text-2xl font-bold">Fehlzeiten</h1>
         <p className="text-gray-600">
-          Fehlzeiten erfassen, prüfen und genehmigen.
+          Abwesenheiten erfassen, payroll-relevant prüfen und genehmigen.
         </p>
       </div>
 
@@ -265,7 +335,7 @@ useEffect(() => {
           onSubmit={handleSubmit}
           className="space-y-4 rounded-2xl bg-white p-6 shadow"
         >
-          <h2 className="text-xl font-semibold">Neue Fehlzeit erfassen</h2>
+          <h2 className="text-xl font-semibold">Neue Abwesenheit erfassen</h2>
 
           <div className="grid gap-4 md:grid-cols-2">
             <FormField label="Mitarbeiter">
@@ -284,7 +354,7 @@ useEffect(() => {
               </select>
             </FormField>
 
-            <FormField label="Art der Fehlzeit">
+            <FormField label="Art der Abwesenheit">
               <select
                 className={inputClass}
                 value={formData.absenceType}
@@ -321,6 +391,17 @@ useEffect(() => {
             </FormField>
           </div>
 
+          {formData.absenceType && (
+            <div className="rounded-xl bg-blue-50 p-4 text-sm text-blue-900">
+              <p className="font-medium">Payroll-Hinweis</p>
+              <p className="mt-1">
+                {getAbsenceType(formData.absenceType)?.requiresDocument
+                  ? "Für diese Abwesenheit sollte ein Nachweis/Dokument vorliegen."
+                  : "Für diese Abwesenheit ist standardmäßig kein Dokument erforderlich."}
+              </p>
+            </div>
+          )}
+
           <FormField label="Hinweise">
             <textarea
               className="min-h-24 w-full rounded border p-3"
@@ -339,7 +420,7 @@ useEffect(() => {
         <h2 className="text-xl font-semibold">Übersicht</h2>
 
         {absences.length === 0 ? (
-          <p className="text-gray-600">Keine Fehlzeiten vorhanden.</p>
+          <p className="text-gray-600">Keine Abwesenheiten vorhanden.</p>
         ) : (
           <div className="space-y-3">
             {absences.map((absence) => (
@@ -349,10 +430,28 @@ useEffect(() => {
                     <p className="font-medium">
                       {absence.employeeName || "Unbekannter Mitarbeiter"}
                     </p>
+
                     <p className="text-sm text-gray-600">
-                      {getAbsenceLabel(absence.absenceType)} vom{" "}
-                      {absence.startDate || "-"} bis {absence.endDate || "-"}
+                      {absence.absenceLabel ||
+                        getAbsenceLabel(absence.absenceType)}{" "}
+                      vom {absence.startDate || "-"} bis{" "}
+                      {absence.endDate || "-"}
                     </p>
+
+                    <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                      {absence.payrollRelevant && (
+                        <span className="rounded-full bg-blue-100 px-3 py-1 text-blue-800">
+                          Payroll-relevant
+                        </span>
+                      )}
+
+                      {absence.requiresDocument && (
+                        <span className="rounded-full bg-orange-100 px-3 py-1 text-orange-800">
+                          Nachweis erforderlich
+                        </span>
+                      )}
+                    </div>
+
                     {absence.notes && (
                       <p className="mt-2 text-sm text-gray-700">
                         {absence.notes}
@@ -360,8 +459,12 @@ useEffect(() => {
                     )}
                   </div>
 
-                  <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700">
-                    {absence.status || "requested"}
+                  <span
+                    className={`rounded-full px-3 py-1 text-xs font-medium ${getStatusClass(
+                      absence.status
+                    )}`}
+                  >
+                    {getStatusLabel(absence.status)}
                   </span>
                 </div>
 

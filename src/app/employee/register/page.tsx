@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { createUserWithEmailAndPassword } from "firebase/auth";
 import {
@@ -14,7 +14,7 @@ import {
 } from "firebase/firestore";
 import { auth, db } from "../../../lib/firebase";
 
-export default function EmployeeRegisterPage() {
+function EmployeeRegisterContent() {
   const params = useSearchParams();
   const token = params.get("token");
 
@@ -81,7 +81,7 @@ export default function EmployeeRegisterPage() {
       );
 
       await setDoc(doc(db, "users", userCred.user.uid), {
-        userId: userCred.user.uid,
+        uid: userCred.user.uid,
         email: employee.email,
         role: "employee",
         companyId: employee.companyId,
@@ -89,6 +89,8 @@ export default function EmployeeRegisterPage() {
         accessScope: "self",
         createdAt: new Date().toISOString(),
       });
+
+      document.cookie = `uid=${userCred.user.uid}; path=/; max-age=86400; SameSite=Lax`;
 
       window.location.href = `/employee/self-service/${employee.companyId}/${employee.id}`;
     } catch (error: any) {
@@ -136,5 +138,19 @@ export default function EmployeeRegisterPage() {
         {message && <p className="text-sm text-red-600">{message}</p>}
       </form>
     </main>
+  );
+}
+
+export default function EmployeeRegisterPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="flex min-h-screen items-center justify-center bg-gray-50 p-6">
+          <p>Lade Registrierung...</p>
+        </main>
+      }
+    >
+      <EmployeeRegisterContent />
+    </Suspense>
   );
 }

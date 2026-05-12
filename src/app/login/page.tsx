@@ -1,5 +1,12 @@
 import Link from "next/link";
 
+export const metadata = {
+  robots: {
+    index: false,
+    follow: false,
+  },
+};
+
 export default function LoginSelectionPage() {
   return (
     <main className="flex min-h-screen items-center justify-center bg-gray-50 p-6">

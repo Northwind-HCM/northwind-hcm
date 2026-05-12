@@ -2,36 +2,30 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Northwind HCM | Payroll-ready HR Software",
+  metadataBase: new URL("https://northwind-hr.eu"),
+
+  title: {
+    default: "Northwind HR",
+    template: "%s | Northwind HR",
+  },
+
   description:
-    "Payroll & HCM für Deutschland. Mitarbeiterverwaltung, Employee Self-Service, Fehlzeiten, Dokumente und Payroll Readiness in einer Plattform.",
+    "Payroll-ready HR Software für moderne Unternehmen. Digitale Personalakte, Employee Self-Service und deutsche Payroll-Prozesse.",
 
   keywords: [
-    "Payroll Deutschland",
-    "HCM Software",
-    "HR Software Deutschland",
-    "Employee Self Service",
+    "Payroll Software Deutschland",
+    "HR Software",
     "Lohnabrechnung",
-    "Payroll Ready",
+    "Employee Self Service",
     "Digitale Personalakte",
-    "Fehlzeiten",
-    "HR Plattform",
+    "HCM Software",
   ],
-
-  authors: [
-    {
-      name: "Northwind Payroll & HR Consulting GmbH",
-    },
-  ],
-
-  creator: "Northwind Payroll & HR Consulting GmbH",
 
   openGraph: {
-    title: "Northwind HCM",
-    description:
-      "Payroll-ready HR Software für Deutschland.",
+    title: "Northwind HR",
+    description: "Payroll-ready HR Software für moderne Unternehmen.",
     url: "https://northwind-hr.eu",
-    siteName: "Northwind HCM",
+    siteName: "Northwind HR",
     locale: "de_DE",
     type: "website",
   },
@@ -40,8 +34,6 @@ export const metadata: Metadata = {
     index: true,
     follow: true,
   },
-
-  metadataBase: new URL("https://northwind-hr.eu"),
 };
 
 export default function RootLayout({
@@ -51,9 +43,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="de">
-      <body className="bg-white text-gray-900 antialiased">
-        {children}
-      </body>
+      <body className="bg-white text-gray-900 antialiased">{children}</body>
     </html>
   );
 }

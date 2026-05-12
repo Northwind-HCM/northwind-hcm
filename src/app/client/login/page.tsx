@@ -12,6 +12,13 @@ const allowedRoles = [
   "team_lead",
 ];
 
+export const metadata = {
+  robots: {
+    index: false,
+    follow: false,
+  },
+};
+
 export default function ClientLoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");

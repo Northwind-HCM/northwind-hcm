@@ -3,8 +3,16 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth/getCurrentUser";
 
+export const metadata = {
+  robots: {
+    index: false,
+    follow: false,
+  },
+};
+
 export default async function DashboardPage() {
   const user = await getCurrentUser();
+
 
   if (!user) {
     redirect("/login");

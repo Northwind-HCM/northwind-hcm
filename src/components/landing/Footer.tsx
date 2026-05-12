@@ -72,7 +72,7 @@ export default function Footer() {
               </Link>
 
               <Link
-                href="/client/register"
+                href="/early-access"
                 className="block text-gray-600 hover:text-blue-900"
               >
                 Early Access

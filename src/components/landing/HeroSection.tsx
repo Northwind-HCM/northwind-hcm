@@ -53,7 +53,7 @@ export default function HeroSection() {
 
           <div className="mt-10 flex flex-wrap gap-4">
             <Link
-              href="/client/register"
+              href="/early-access"
               className="rounded-2xl bg-blue-900 px-7 py-4 text-sm font-semibold text-white shadow-lg transition hover:bg-blue-800"
             >
               Early Access anfragen

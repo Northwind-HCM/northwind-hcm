@@ -79,12 +79,12 @@ export default function Navbar() {
             Login
           </Link>
 
-          <Link
-            href="/client/register"
-            className="rounded-xl bg-blue-900 px-5 py-2 text-sm font-medium text-white transition hover:bg-blue-800"
-          >
-            Early Access
-          </Link>
+<Link
+  href="/early-access"
+  className="rounded-xl bg-blue-900 px-5 py-2 text-sm font-medium text-white transition hover:bg-blue-800"
+>
+  Early Access
+</Link>
         </nav>
 
       </div>

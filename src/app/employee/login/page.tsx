@@ -11,6 +11,13 @@ type UserData = {
   employeeId?: string;
 };
 
+export const metadata = {
+  robots: {
+    index: false,
+    follow: false,
+  },
+};
+
 export default function EmployeeLoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");

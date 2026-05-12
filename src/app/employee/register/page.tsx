@@ -14,13 +14,6 @@ import {
 } from "firebase/firestore";
 import { auth, db } from "../../../lib/firebase";
 
-export const metadata = {
-  robots: {
-    index: false,
-    follow: false,
-  },
-};
-
 function EmployeeRegisterContent() {
   const params = useSearchParams();
   const token = params.get("token");

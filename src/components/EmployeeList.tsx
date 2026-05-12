@@ -22,19 +22,30 @@ type Employee = {
   firstName?: string;
   lastName?: string;
   email?: string;
+
+  portalAccess?: boolean;
+  portalStatus?: "not_invited" | "invited" | "active";
   inviteStatus?: "not_invited" | "invited" | "active";
+  invitedAt?: string;
+  inviteLastSentAt?: string;
+  registeredAt?: string;
+
   status?: "draft" | "incomplete" | "complete" | "archived";
   missingFields?: string[];
   archivedAt?: string;
 };
 
-function getInviteLabel(status?: string) {
-  if (status === "active") return "Aktiv";
-  if (status === "invited") return "Eingeladen";
-  return "Nicht eingeladen";
+function getPortalStatus(employee: Employee) {
+  return employee.portalStatus || employee.inviteStatus || "not_invited";
 }
 
-function getInviteClass(status?: string) {
+function getPortalLabel(status?: string) {
+  if (status === "active") return "Portal aktiv";
+  if (status === "invited") return "Einladung offen";
+  return "Kein Zugang";
+}
+
+function getPortalClass(status?: string) {
   if (status === "active") return "bg-green-100 text-green-800";
   if (status === "invited") return "bg-yellow-100 text-yellow-800";
   return "bg-gray-100 text-gray-700";
@@ -56,11 +67,33 @@ function getPayrollClass(status?: string) {
   return "bg-gray-100 text-gray-700";
 }
 
+function formatDate(value?: string) {
+  if (!value) return "";
+
+  try {
+    return new Intl.DateTimeFormat("de-DE", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    }).format(new Date(value));
+  } catch {
+    return "";
+  }
+}
+
+function getInviteButtonLabel(employee: Employee) {
+  const portalStatus = getPortalStatus(employee);
+
+  if (portalStatus === "invited") return "Einladung erneut senden";
+  return "Einladung senden";
+}
+
 export default function EmployeeList({ companyId }: Props) {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"active" | "archived">("active");
   const [search, setSearch] = useState("");
+  const [sendingInviteId, setSendingInviteId] = useState<string | null>(null);
 
   async function loadEmployees() {
     setLoading(true);
@@ -93,6 +126,15 @@ export default function EmployeeList({ companyId }: Props) {
       return;
     }
 
+    const portalStatus = getPortalStatus(employee);
+
+    if (portalStatus === "active") {
+      alert("Dieser Mitarbeiter hat bereits einen aktiven Portalzugang.");
+      return;
+    }
+
+    setSendingInviteId(employee.id);
+
     try {
       const response = await fetch("/api/invite-employee", {
         method: "POST",
@@ -114,11 +156,18 @@ export default function EmployeeList({ companyId }: Props) {
         return;
       }
 
-      alert("Einladung wurde erfolgreich versendet ✅");
+      alert(
+        portalStatus === "invited"
+          ? "Einladung wurde erneut versendet ✅"
+          : "Einladung wurde erfolgreich versendet ✅"
+      );
+
       await loadEmployees();
     } catch (error) {
       console.error(error);
       alert("Fehler beim Senden der Einladung.");
+    } finally {
+      setSendingInviteId(null);
     }
   }
 
@@ -150,7 +199,10 @@ export default function EmployeeList({ companyId }: Props) {
   async function restoreEmployee(employee: Employee) {
     try {
       await updateDoc(doc(db, "companies", companyId, "employees", employee.id), {
-        status: employee.missingFields && employee.missingFields.length > 0 ? "incomplete" : "complete",
+        status:
+          employee.missingFields && employee.missingFields.length > 0
+            ? "incomplete"
+            : "complete",
         archivedAt: "",
         updatedAt: new Date().toISOString(),
       });
@@ -200,7 +252,7 @@ export default function EmployeeList({ companyId }: Props) {
   }
 
   return (
-    <div className="rounded-2xl bg-white p-6 shadow space-y-5">
+    <div className="space-y-5 rounded-2xl bg-white p-6 shadow">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <h2 className="text-xl font-semibold">Mitarbeiterübersicht</h2>
@@ -263,6 +315,7 @@ export default function EmployeeList({ companyId }: Props) {
                 <th className="p-3 font-semibold">Mitarbeiter</th>
                 <th className="p-3 font-semibold">Kontakt</th>
                 <th className="p-3 font-semibold">Status</th>
+                <th className="p-3 font-semibold">Portalzugang</th>
                 <th className="p-3 font-semibold">Fehlende Angaben</th>
                 <th className="p-3 font-semibold text-right">Aktionen</th>
               </tr>
@@ -273,6 +326,12 @@ export default function EmployeeList({ companyId }: Props) {
                 const fullName =
                   `${employee.firstName || ""} ${employee.lastName || ""}`.trim() ||
                   "Unbenannter Mitarbeiter";
+
+                const portalStatus = getPortalStatus(employee);
+                const inviteDate =
+                  formatDate(employee.inviteLastSentAt) ||
+                  formatDate(employee.invitedAt);
+                const registeredDate = formatDate(employee.registeredAt);
 
                 return (
                   <tr key={employee.id} className="border-t align-top">
@@ -293,7 +352,7 @@ export default function EmployeeList({ companyId }: Props) {
                       )}
                     </td>
 
-                    <td className="space-y-2 p-3">
+                    <td className="p-3">
                       <span
                         className={`inline-block rounded-full px-3 py-1 text-xs font-medium ${getPayrollClass(
                           employee.status
@@ -301,16 +360,28 @@ export default function EmployeeList({ companyId }: Props) {
                       >
                         {getPayrollLabel(employee.status)}
                       </span>
+                    </td>
 
-                      <br />
-
+                    <td className="space-y-1 p-3">
                       <span
-                        className={`inline-block rounded-full px-3 py-1 text-xs font-medium ${getInviteClass(
-                          employee.inviteStatus
+                        className={`inline-block rounded-full px-3 py-1 text-xs font-medium ${getPortalClass(
+                          portalStatus
                         )}`}
                       >
-                        {getInviteLabel(employee.inviteStatus)}
+                        {getPortalLabel(portalStatus)}
                       </span>
+
+                      {portalStatus === "invited" && inviteDate && (
+                        <p className="text-xs text-gray-500">
+                          versendet am {inviteDate}
+                        </p>
+                      )}
+
+                      {portalStatus === "active" && registeredDate && (
+                        <p className="text-xs text-gray-500">
+                          aktiv seit {registeredDate}
+                        </p>
+                      )}
                     </td>
 
                     <td className="p-3">
@@ -329,13 +400,18 @@ export default function EmployeeList({ companyId }: Props) {
                       <div className="flex flex-wrap justify-end gap-2">
                         {employee.status !== "archived" && (
                           <>
-                            <button
-                              type="button"
-                              onClick={() => inviteEmployee(employee)}
-                              className="rounded bg-blue-900 px-3 py-2 text-xs text-white hover:bg-blue-800"
-                            >
-                              Einladen
-                            </button>
+                            {portalStatus !== "active" && (
+                              <button
+                                type="button"
+                                onClick={() => inviteEmployee(employee)}
+                                disabled={sendingInviteId === employee.id}
+                                className="rounded bg-blue-900 px-3 py-2 text-xs text-white hover:bg-blue-800 disabled:opacity-50"
+                              >
+                                {sendingInviteId === employee.id
+                                  ? "Sendet..."
+                                  : getInviteButtonLabel(employee)}
+                              </button>
+                            )}
 
                             <Link
                               href={`/dashboard/${companyId}/employees/${employee.id}`}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   addDoc,
   collection,
@@ -26,6 +26,9 @@ type Employee = {
   firstName?: string;
   lastName?: string;
   email?: string;
+  managerId?: string;
+  managerName?: string;
+  managerEmail?: string;
 };
 
 type AbsenceStatus = "requested" | "approved" | "rejected";
@@ -35,14 +38,39 @@ type Absence = {
   employeeId?: string;
   employeeName?: string;
   employeeEmail?: string;
+
+  managerId?: string;
+  managerName?: string;
+  managerEmail?: string;
+
   absenceType?: string;
   absenceLabel?: string;
   startDate?: string;
   endDate?: string;
   status?: AbsenceStatus;
   notes?: string;
-  requiresDocument?: boolean;
+
+  halfDay?: boolean;
+  substitutePerson?: string;
+
+  hospitalStay?: boolean;
+  requiresEAU?: boolean;
+  eAUStatus?: string;
+
+  childName?: string;
+  childBirthDate?: string;
+  singleParent?: boolean;
+
+  parentalLeavePartTime?: boolean;
+
+  bgRelevant?: boolean;
   payrollRelevant?: boolean;
+  requiresDocument?: boolean;
+
+  approvedAt?: string;
+  approvedBy?: string;
+  rejectedAt?: string;
+  rejectedBy?: string;
 };
 
 const inputClass = "w-full rounded border p-3";
@@ -63,12 +91,18 @@ const absenceTypes = [
   {
     value: "sickness_with_certificate",
     label: "Krankheit mit Attest / eAU",
-    requiresDocument: true,
+    requiresDocument: false,
     payrollRelevant: true,
   },
   {
     value: "child_sickness",
     label: "Kind krank",
+    requiresDocument: true,
+    payrollRelevant: true,
+  },
+  {
+    value: "work_accident",
+    label: "Arbeitsunfall",
     requiresDocument: true,
     payrollRelevant: true,
   },
@@ -155,12 +189,19 @@ function canApproveForEmployee(
   });
 }
 
+function getEmployeeName(employee?: Employee) {
+  return `${employee?.firstName || ""} ${employee?.lastName || ""}`.trim();
+}
+
 export default function AbsenceManager({ companyId }: Props) {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [absences, setAbsences] = useState<Absence[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [user, setUser] = useState<AppUser | null>(null);
+  const [statusFilter, setStatusFilter] = useState<"all" | AbsenceStatus>(
+    "requested"
+  );
 
   const [formData, setFormData] = useState({
     employeeId: "",
@@ -251,10 +292,27 @@ export default function AbsenceManager({ companyId }: Props) {
       return;
     }
 
+    const now = new Date().toISOString();
+
     await updateDoc(doc(db, "companies", companyId, "absences", absence.id), {
       status,
-      updatedAt: new Date().toISOString(),
+      updatedAt: now,
+      ...(status === "approved"
+        ? {
+            approvedAt: now,
+            approvedBy: user?.uid || "",
+          }
+        : {
+            rejectedAt: now,
+            rejectedBy: user?.uid || "",
+          }),
     });
+
+    setMessage(
+      status === "approved"
+        ? "Fehlzeit wurde genehmigt ✅"
+        : "Fehlzeit wurde abgelehnt."
+    );
 
     await loadData();
   }
@@ -280,14 +338,27 @@ export default function AbsenceManager({ companyId }: Props) {
     }
 
     const absenceType = getAbsenceType(formData.absenceType);
+    const requiresEAU = formData.absenceType === "sickness_with_certificate";
+    const bgRelevant = formData.absenceType === "work_accident";
 
     await addDoc(collection(db, "companies", companyId, "absences"), {
       ...formData,
-      employeeName: `${employee.firstName || ""} ${employee.lastName || ""}`.trim(),
+      employeeName: getEmployeeName(employee),
       employeeEmail: employee.email || "",
+
+      managerId: employee.managerId || "",
+      managerName: employee.managerName || "",
+      managerEmail: employee.managerEmail || "",
+
       absenceLabel: absenceType?.label || "",
       requiresDocument: absenceType?.requiresDocument ?? false,
       payrollRelevant: absenceType?.payrollRelevant ?? true,
+      requiresEAU,
+      eAUStatus: requiresEAU ? "to_be_requested" : "not_required",
+      bgRelevant,
+
+      approvalRequired: true,
+      approvalLevel: 1,
       status: "requested",
       createdAt: serverTimestamp(),
       updatedAt: new Date().toISOString(),
@@ -311,17 +382,51 @@ export default function AbsenceManager({ companyId }: Props) {
     user?.role === "client_hr_admin" ||
     user?.role === "team_lead";
 
+  const filteredAbsences = useMemo(() => {
+    if (statusFilter === "all") return absences;
+    return absences.filter((absence) => absence.status === statusFilter);
+  }, [absences, statusFilter]);
+
+  const requestedCount = absences.filter(
+    (absence) => absence.status === "requested"
+  ).length;
+  const approvedCount = absences.filter(
+    (absence) => absence.status === "approved"
+  ).length;
+  const rejectedCount = absences.filter(
+    (absence) => absence.status === "rejected"
+  ).length;
+
   if (loading) {
     return <p>Lade Fehlzeiten...</p>;
   }
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Fehlzeiten</h1>
-        <p className="text-gray-600">
-          Abwesenheiten erfassen, payroll-relevant prüfen und genehmigen.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold">Fehlzeiten</h1>
+          <p className="text-gray-600">
+            Abwesenheiten erfassen, prüfen und genehmigen.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-3 gap-2 text-center text-sm">
+          <div className="rounded-xl bg-yellow-50 px-4 py-3 text-yellow-800">
+            <p className="text-xs">Beantragt</p>
+            <p className="text-xl font-bold">{requestedCount}</p>
+          </div>
+
+          <div className="rounded-xl bg-green-50 px-4 py-3 text-green-800">
+            <p className="text-xs">Genehmigt</p>
+            <p className="text-xl font-bold">{approvedCount}</p>
+          </div>
+
+          <div className="rounded-xl bg-red-50 px-4 py-3 text-red-800">
+            <p className="text-xs">Abgelehnt</p>
+            <p className="text-xl font-bold">{rejectedCount}</p>
+          </div>
+        </div>
       </div>
 
       {message && (
@@ -348,7 +453,7 @@ export default function AbsenceManager({ companyId }: Props) {
                 <option value="">Bitte wählen</option>
                 {employees.map((employee) => (
                   <option key={employee.id} value={employee.id}>
-                    {employee.firstName} {employee.lastName}
+                    {getEmployeeName(employee)}
                   </option>
                 ))}
               </select>
@@ -391,13 +496,38 @@ export default function AbsenceManager({ companyId }: Props) {
             </FormField>
           </div>
 
+          {formData.employeeId && (
+            <div className="rounded-xl bg-gray-50 p-4 text-sm text-gray-700">
+              {(() => {
+                const employee = employees.find(
+                  (item) => item.id === formData.employeeId
+                );
+
+                return employee?.managerName ? (
+                  <p>
+                    Vorgesetzter:{" "}
+                    <span className="font-medium">{employee.managerName}</span>
+                    {employee.managerEmail ? ` · ${employee.managerEmail}` : ""}
+                  </p>
+                ) : (
+                  <p className="text-orange-700">
+                    Für diesen Mitarbeiter ist noch kein Vorgesetzter
+                    hinterlegt.
+                  </p>
+                );
+              })()}
+            </div>
+          )}
+
           {formData.absenceType && (
             <div className="rounded-xl bg-blue-50 p-4 text-sm text-blue-900">
               <p className="font-medium">Payroll-Hinweis</p>
               <p className="mt-1">
-                {getAbsenceType(formData.absenceType)?.requiresDocument
-                  ? "Für diese Abwesenheit sollte ein Nachweis/Dokument vorliegen."
-                  : "Für diese Abwesenheit ist standardmäßig kein Dokument erforderlich."}
+                {formData.absenceType === "sickness_with_certificate"
+                  ? "Die eAU wird durch Payroll / Arbeitgeber abgerufen."
+                  : getAbsenceType(formData.absenceType)?.requiresDocument
+                    ? "Für diese Abwesenheit kann ein Nachweis oder eine gesonderte Prüfung erforderlich sein."
+                    : "Für diese Abwesenheit ist standardmäßig kein Dokument erforderlich."}
               </p>
             </div>
           )}
@@ -417,13 +547,37 @@ export default function AbsenceManager({ companyId }: Props) {
       )}
 
       <section className="space-y-4 rounded-2xl bg-white p-6 shadow">
-        <h2 className="text-xl font-semibold">Übersicht</h2>
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <h2 className="text-xl font-semibold">Übersicht</h2>
 
-        {absences.length === 0 ? (
-          <p className="text-gray-600">Keine Abwesenheiten vorhanden.</p>
+          <div className="flex flex-wrap gap-2">
+            {[
+              ["requested", "Beantragt"],
+              ["approved", "Genehmigt"],
+              ["rejected", "Abgelehnt"],
+              ["all", "Alle"],
+            ].map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setStatusFilter(value as "all" | AbsenceStatus)}
+                className={`rounded-lg px-3 py-2 text-sm ${
+                  statusFilter === value
+                    ? "bg-blue-900 text-white"
+                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {filteredAbsences.length === 0 ? (
+          <p className="text-gray-600">Keine passenden Abwesenheiten vorhanden.</p>
         ) : (
           <div className="space-y-3">
-            {absences.map((absence) => (
+            {filteredAbsences.map((absence) => (
               <div key={absence.id} className="rounded-xl border p-4">
                 <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                   <div>
@@ -438,6 +592,15 @@ export default function AbsenceManager({ companyId }: Props) {
                       {absence.endDate || "-"}
                     </p>
 
+                    {absence.managerName && (
+                      <p className="mt-1 text-sm text-gray-500">
+                        Vorgesetzter: {absence.managerName}
+                        {absence.managerEmail
+                          ? ` · ${absence.managerEmail}`
+                          : ""}
+                      </p>
+                    )}
+
                     <div className="mt-2 flex flex-wrap gap-2 text-xs">
                       {absence.payrollRelevant && (
                         <span className="rounded-full bg-blue-100 px-3 py-1 text-blue-800">
@@ -445,9 +608,39 @@ export default function AbsenceManager({ companyId }: Props) {
                         </span>
                       )}
 
+                      {absence.requiresEAU && (
+                        <span className="rounded-full bg-purple-100 px-3 py-1 text-purple-800">
+                          eAU-Abruf erforderlich
+                        </span>
+                      )}
+
+                      {absence.bgRelevant && (
+                        <span className="rounded-full bg-red-100 px-3 py-1 text-red-800">
+                          BG-relevant
+                        </span>
+                      )}
+
                       {absence.requiresDocument && (
                         <span className="rounded-full bg-orange-100 px-3 py-1 text-orange-800">
-                          Nachweis erforderlich
+                          Nachweis / Prüfung erforderlich
+                        </span>
+                      )}
+
+                      {absence.childName && (
+                        <span className="rounded-full bg-pink-100 px-3 py-1 text-pink-800">
+                          Kind: {absence.childName}
+                        </span>
+                      )}
+
+                      {absence.hospitalStay && (
+                        <span className="rounded-full bg-gray-100 px-3 py-1 text-gray-700">
+                          Krankenhaus / Sondernachweis
+                        </span>
+                      )}
+
+                      {absence.halfDay && (
+                        <span className="rounded-full bg-gray-100 px-3 py-1 text-gray-700">
+                          Halber Tag
                         </span>
                       )}
                     </div>
@@ -460,7 +653,7 @@ export default function AbsenceManager({ companyId }: Props) {
                   </div>
 
                   <span
-                    className={`rounded-full px-3 py-1 text-xs font-medium ${getStatusClass(
+                    className={`w-fit rounded-full px-3 py-1 text-xs font-medium ${getStatusClass(
                       absence.status
                     )}`}
                   >
@@ -470,7 +663,7 @@ export default function AbsenceManager({ companyId }: Props) {
 
                 {absence.status === "requested" &&
                   canApproveForEmployee(user, companyId, absence.employeeId) && (
-                    <div className="mt-3 flex gap-2">
+                    <div className="mt-4 flex flex-wrap gap-2">
                       <button
                         type="button"
                         onClick={() => updateStatus(absence, "approved")}

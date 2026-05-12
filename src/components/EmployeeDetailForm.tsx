@@ -25,6 +25,8 @@ type EmployeeOption = {
 };
 
 const inputClass = "w-full rounded border p-3 disabled:bg-gray-100";
+const errorInputClass =
+  "w-full rounded border border-red-500 bg-red-50 p-3 disabled:bg-gray-100";
 
 const initialFormData = {
   employeeNumber: "",
@@ -186,6 +188,7 @@ export default function EmployeeDetailForm({
   const [initialLoading, setInitialLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const [validationErrors, setValidationErrors] = useState<string[]>([]);
 
   useEffect(() => {
     async function loadEmployee() {
@@ -223,6 +226,10 @@ export default function EmployeeDetailForm({
     loadEmployee();
   }, [companyId, employeeId]);
 
+  function hasError(field: string) {
+    return validationErrors.includes(field);
+  }
+
   function updateField(key: FormKey, value: string | boolean) {
     if (readOnly) return;
 
@@ -230,6 +237,8 @@ export default function EmployeeDetailForm({
       ...prev,
       [key]: value as never,
     }));
+
+    setValidationErrors((prev) => prev.filter((field) => field !== key));
   }
 
   function updateManager(selectedId: string) {
@@ -258,6 +267,48 @@ export default function EmployeeDetailForm({
     setSaving(true);
     setMessage("");
 
+    const missingFields: string[] = [];
+
+    if (!formData.firstName) missingFields.push("firstName");
+    if (!formData.lastName) missingFields.push("lastName");
+    if (!formData.entryDate) missingFields.push("entryDate");
+    if (!formData.employmentType) missingFields.push("employmentType");
+    if (!formData.taxId) missingFields.push("taxId");
+    if (!formData.socialSecurityNumber) missingFields.push("socialSecurityNumber");
+    if (!formData.healthInsurance) missingFields.push("healthInsurance");
+    if (!formData.iban) missingFields.push("iban");
+    if (!formData.hasChildrenForPV) missingFields.push("hasChildrenForPV");
+
+    setValidationErrors(missingFields);
+
+    if (missingFields.length > 0) {
+      setMessage(
+        "Bitte alle Pflichtfelder vervollständigen. Fehlende Felder wurden markiert."
+      );
+
+      if (missingFields.includes("firstName") || missingFields.includes("lastName")) {
+        setActiveTab("personal");
+      } else if (
+        missingFields.includes("entryDate") ||
+        missingFields.includes("employmentType")
+      ) {
+        setActiveTab("employment");
+      } else if (missingFields.includes("taxId")) {
+        setActiveTab("tax");
+      } else if (
+        missingFields.includes("socialSecurityNumber") ||
+        missingFields.includes("healthInsurance") ||
+        missingFields.includes("hasChildrenForPV")
+      ) {
+        setActiveTab("social");
+      } else if (missingFields.includes("iban")) {
+        setActiveTab("bank");
+      }
+
+      setSaving(false);
+      return;
+    }
+
     try {
       const completeness = calculateCompleteness(formData);
 
@@ -272,11 +323,8 @@ export default function EmployeeDetailForm({
         { merge: true }
       );
 
-      setMessage(
-        completeness.status === "complete"
-          ? "Mitarbeiter vollständig gespeichert ✅"
-          : `Gespeichert ⚠️ Fehlend: ${completeness.missingFields.join(", ")}`
-      );
+      setValidationErrors([]);
+      setMessage("Mitarbeiter erfolgreich gespeichert ✅");
     } catch (error: any) {
       console.error(error);
       setMessage(`Fehler beim Speichern ❌ ${error.message}`);
@@ -291,6 +339,18 @@ export default function EmployeeDetailForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
+      {message && (
+        <div
+          className={`rounded-xl p-4 text-sm ${
+            validationErrors.length > 0
+              ? "bg-red-50 text-red-800"
+              : "bg-green-50 text-green-800"
+          }`}
+        >
+          {message}
+        </div>
+      )}
+
       <div className="rounded-2xl bg-white p-4 shadow">
         <div className="flex flex-wrap gap-2 border-b pb-3">
           {tabs.map((tab) => (
@@ -313,8 +373,8 @@ export default function EmployeeDetailForm({
           {activeTab === "personal" && (
             <Section title="Persönliche Daten">
               <TextField readOnly={readOnly} label="Personalnummer" value={formData.employeeNumber} onChange={(value) => updateField("employeeNumber", value)} />
-              <TextField readOnly={readOnly} label="Vorname" required value={formData.firstName} onChange={(value) => updateField("firstName", value)} />
-              <TextField readOnly={readOnly} label="Nachname" required value={formData.lastName} onChange={(value) => updateField("lastName", value)} />
+              <TextField error={hasError("firstName")} readOnly={readOnly} label="Vorname" required value={formData.firstName} onChange={(value) => updateField("firstName", value)} />
+              <TextField error={hasError("lastName")} readOnly={readOnly} label="Nachname" required value={formData.lastName} onChange={(value) => updateField("lastName", value)} />
               <TextField readOnly={readOnly} type="date" label="Geburtsdatum" value={formData.birthDate} onChange={(value) => updateField("birthDate", value)} />
               <TextField readOnly={readOnly} label="Geburtsname" value={formData.birthName} onChange={(value) => updateField("birthName", value)} />
               <TextField readOnly={readOnly} label="Geburtsort" value={formData.birthPlace} onChange={(value) => updateField("birthPlace", value)} />
@@ -351,12 +411,13 @@ export default function EmployeeDetailForm({
           {activeTab === "employment" && (
             <Section title="Beschäftigung">
               <TextField readOnly={readOnly} label="Berufsbezeichnung" value={formData.jobTitle} onChange={(value) => updateField("jobTitle", value)} />
-              <TextField readOnly={readOnly} type="date" label="Eintrittsdatum" required value={formData.entryDate} onChange={(value) => updateField("entryDate", value)} />
+              <TextField error={hasError("entryDate")} readOnly={readOnly} type="date" label="Eintrittsdatum" required value={formData.entryDate} onChange={(value) => updateField("entryDate", value)} />
               <TextField readOnly={readOnly} type="date" label="Austrittsdatum" value={formData.exitDate} onChange={(value) => updateField("exitDate", value)} />
 
               <SelectField readOnly={readOnly} label="Befristung" value={formData.fixedTerm} onChange={(value) => updateField("fixedTerm", value)} options={[["yes", "Ja"], ["no", "Nein"]]} />
 
               <SelectField
+                error={hasError("employmentType")}
                 readOnly={readOnly}
                 label="Beschäftigungsart"
                 required
@@ -380,7 +441,7 @@ export default function EmployeeDetailForm({
 
           {activeTab === "tax" && (
             <Section title="Steuerdaten">
-              <TextField readOnly={readOnly} label="Steuer-ID" value={formData.taxId} onChange={(value) => updateField("taxId", value)} />
+              <TextField error={hasError("taxId")} readOnly={readOnly} label="Steuer-ID" value={formData.taxId} onChange={(value) => updateField("taxId", value)} />
 
               <SelectField readOnly={readOnly} label="Steuerklasse" value={formData.taxClass} onChange={(value) => updateField("taxClass", value)} options={[["1", "1"], ["2", "2"], ["3", "3"], ["4", "4"], ["5", "5"], ["6", "6"]]} />
 
@@ -395,8 +456,8 @@ export default function EmployeeDetailForm({
 
           {activeTab === "social" && (
             <Section title="Sozialversicherung / Krankenkasse">
-              <TextField readOnly={readOnly} label="Sozialversicherungsnummer" value={formData.socialSecurityNumber} onChange={(value) => updateField("socialSecurityNumber", value)} />
-              <TextField readOnly={readOnly} label="Krankenkasse" value={formData.healthInsurance} onChange={(value) => updateField("healthInsurance", value)} />
+              <TextField error={hasError("socialSecurityNumber")} readOnly={readOnly} label="Sozialversicherungsnummer" value={formData.socialSecurityNumber} onChange={(value) => updateField("socialSecurityNumber", value)} />
+              <TextField error={hasError("healthInsurance")} readOnly={readOnly} label="Krankenkasse" value={formData.healthInsurance} onChange={(value) => updateField("healthInsurance", value)} />
               <TextField readOnly={readOnly} label="Betriebsnummer Krankenkasse" value={formData.healthInsuranceCompanyNumber} onChange={(value) => updateField("healthInsuranceCompanyNumber", value)} />
 
               <SelectField readOnly={readOnly} label="Gesetzlich versichert?" value={formData.statutoryHealthInsurance} onChange={(value) => updateField("statutoryHealthInsurance", value)} options={[["yes", "Ja"], ["no", "Nein"]]} />
@@ -404,7 +465,7 @@ export default function EmployeeDetailForm({
               <SelectField readOnly={readOnly} label="Privat versichert?" value={formData.privateHealthInsurance} onChange={(value) => updateField("privateHealthInsurance", value)} options={[["yes", "Ja"], ["no", "Nein"]]} />
               <TextField readOnly={readOnly} label="PKV Gesamtbeitrag KV" value={formData.privateHealthInsuranceTotalKV} onChange={(value) => updateField("privateHealthInsuranceTotalKV", value)} />
               <TextField readOnly={readOnly} label="PKV Gesamtbeitrag PV" value={formData.privateHealthInsuranceTotalPV} onChange={(value) => updateField("privateHealthInsuranceTotalPV", value)} />
-              <SelectField readOnly={readOnly} label="Kinder für Pflegeversicherung" value={formData.hasChildrenForPV} onChange={(value) => updateField("hasChildrenForPV", value)} options={[["yes", "Ja"], ["no", "Nein"]]} />
+              <SelectField error={hasError("hasChildrenForPV")} readOnly={readOnly} label="Kinder für Pflegeversicherung" value={formData.hasChildrenForPV} onChange={(value) => updateField("hasChildrenForPV", value)} options={[["yes", "Ja"], ["no", "Nein"]]} />
             </Section>
           )}
 
@@ -422,7 +483,7 @@ export default function EmployeeDetailForm({
 
           {activeTab === "bank" && (
             <Section title="Bankdaten">
-              <TextField readOnly={readOnly} label="IBAN" value={formData.iban} onChange={(value) => updateField("iban", value)} />
+              <TextField error={hasError("iban")} readOnly={readOnly} label="IBAN" value={formData.iban} onChange={(value) => updateField("iban", value)} />
               <TextField readOnly={readOnly} label="BIC" value={formData.bic} onChange={(value) => updateField("bic", value)} />
               <TextField readOnly={readOnly} label="Bank" value={formData.bank} onChange={(value) => updateField("bank", value)} />
             </Section>
@@ -519,7 +580,6 @@ export default function EmployeeDetailForm({
         )}
 
         {readOnly && <p className="text-sm text-gray-600">Nur-Lesen-Modus</p>}
-        {message && <p className="text-sm text-gray-700">{message}</p>}
       </div>
     </form>
   );
@@ -547,6 +607,7 @@ function TextField({
   readOnly,
   required = false,
   type = "text",
+  error = false,
 }: {
   label: string;
   value: string;
@@ -554,17 +615,19 @@ function TextField({
   readOnly: boolean;
   required?: boolean;
   type?: string;
+  error?: boolean;
 }) {
   return (
     <FormField label={label} required={required}>
       <input
         type={type}
         disabled={readOnly}
-        className={inputClass}
+        className={error ? errorInputClass : inputClass}
         value={value}
         required={required}
         onChange={(e) => onChange(e.target.value)}
       />
+      {error && <p className="mt-1 text-xs text-red-600">Pflichtfeld</p>}
     </FormField>
   );
 }
@@ -576,6 +639,7 @@ function SelectField({
   options,
   readOnly,
   required = false,
+  error = false,
 }: {
   label: string;
   value: string;
@@ -583,12 +647,13 @@ function SelectField({
   options: [string, string][];
   readOnly: boolean;
   required?: boolean;
+  error?: boolean;
 }) {
   return (
     <FormField label={label} required={required}>
       <select
         disabled={readOnly}
-        className={inputClass}
+        className={error ? errorInputClass : inputClass}
         value={value}
         required={required}
         onChange={(e) => onChange(e.target.value)}
@@ -600,6 +665,7 @@ function SelectField({
           </option>
         ))}
       </select>
+      {error && <p className="mt-1 text-xs text-red-600">Pflichtfeld</p>}
     </FormField>
   );
 }

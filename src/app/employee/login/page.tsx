@@ -25,9 +25,11 @@ export default function EmployeeLoginPage() {
     setError("");
 
     try {
+      const cleanEmail = email.trim().toLowerCase();
+
       const credential = await signInWithEmailAndPassword(
         auth,
-        email.trim(),
+        cleanEmail,
         password
       );
 
@@ -38,7 +40,7 @@ export default function EmployeeLoginPage() {
 
       if (!userSnap.exists()) {
         setError("Für diesen Benutzer wurde kein Benutzerprofil gefunden.");
-        setLoading(false);
+        document.cookie = "uid=; path=/; max-age=0; SameSite=Lax";
         return;
       }
 
@@ -46,22 +48,24 @@ export default function EmployeeLoginPage() {
 
       if (userData.role !== "employee") {
         setError("Dieser Login ist nur für Mitarbeiter vorgesehen.");
-        setLoading(false);
+        document.cookie = "uid=; path=/; max-age=0; SameSite=Lax";
         return;
       }
 
       if (!userData.companyId || !userData.employeeId) {
-        setError(
-          "Dem Benutzer sind noch keine Mitarbeiterdaten zugeordnet."
-        );
-        setLoading(false);
+        setError("Dem Benutzer sind noch keine Mitarbeiterdaten zugeordnet.");
+        document.cookie = "uid=; path=/; max-age=0; SameSite=Lax";
         return;
       }
+
+      document.cookie = `uid=${uid}; path=/; max-age=604800; SameSite=Lax`;
 
       window.location.href = `/employee/self-service/${userData.companyId}/${userData.employeeId}`;
     } catch (err) {
       console.error(err);
       setError("Login fehlgeschlagen. Bitte E-Mail und Passwort prüfen.");
+      document.cookie = "uid=; path=/; max-age=0; SameSite=Lax";
+    } finally {
       setLoading(false);
     }
   }

@@ -5,6 +5,13 @@ import { signInWithEmailAndPassword } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "../../../lib/firebase";
 
+const allowedRoles = [
+  "client_admin",
+  "client_hr_admin",
+  "northwind_admin",
+  "team_lead",
+];
+
 export default function ClientLoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -27,30 +34,35 @@ export default function ClientLoginPage() {
         password
       );
 
-      const user = userCredential.user;
+      const firebaseUser = userCredential.user;
 
-      document.cookie = `uid=${user.uid}; path=/; max-age=86400; SameSite=Lax`;
-
-      const userRef = doc(db, "users", user.uid);
+      const userRef = doc(db, "users", firebaseUser.uid);
       const userSnap = await getDoc(userRef);
 
       if (!userSnap.exists()) {
-        setMessage("Kein Mandantenprofil gefunden.");
-        document.cookie = "uid=; path=/; max-age=0";
+        setMessage("Kein Benutzerprofil gefunden.");
+        document.cookie = "uid=; path=/; max-age=0; SameSite=Lax";
         return;
       }
 
       const userData = userSnap.data();
 
-      if (userData.role !== "client_admin") {
-        setMessage("Dieser Zugang ist kein Mandanten-Admin.");
-        document.cookie = "uid=; path=/; max-age=0";
+      if (!allowedRoles.includes(userData.role)) {
+        setMessage("Dieser Zugang ist nicht für den Mandantenbereich freigegeben.");
+        document.cookie = "uid=; path=/; max-age=0; SameSite=Lax";
         return;
       }
 
-      if (!userData.companyId) {
-        setMessage("Keine Company ID im Mandantenprofil gefunden.");
-        document.cookie = "uid=; path=/; max-age=0";
+      if (!userData.companyId && userData.role !== "northwind_admin") {
+        setMessage("Keine Company ID im Benutzerprofil gefunden.");
+        document.cookie = "uid=; path=/; max-age=0; SameSite=Lax";
+        return;
+      }
+
+      document.cookie = `uid=${firebaseUser.uid}; path=/; max-age=604800; SameSite=Lax`;
+
+      if (userData.role === "northwind_admin" && !userData.companyId) {
+        window.location.href = "/dashboard";
         return;
       }
 
@@ -58,7 +70,7 @@ export default function ClientLoginPage() {
     } catch (error: any) {
       console.error(error);
       setMessage(`Fehler: ${error.message}`);
-      document.cookie = "uid=; path=/; max-age=0";
+      document.cookie = "uid=; path=/; max-age=0; SameSite=Lax";
     } finally {
       setLoading(false);
     }

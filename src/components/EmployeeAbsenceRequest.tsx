@@ -34,12 +34,21 @@ type Absence = {
   endDate?: string;
   status?: "requested" | "approved" | "rejected";
   notes?: string;
+
   halfDay?: boolean;
   substitutePerson?: string;
-  workAccident?: boolean;
+
   hospitalStay?: boolean;
-  parentalLeavePartTime?: boolean;
   requiresEAU?: boolean;
+  eAUStatus?: string;
+
+  childName?: string;
+  childBirthDate?: string;
+  singleParent?: boolean;
+
+  parentalLeavePartTime?: boolean;
+
+  bgRelevant?: boolean;
 };
 
 const inputClass = "w-full rounded border p-3";
@@ -53,8 +62,11 @@ const initialFormData = {
   halfDay: false,
   substitutePerson: "",
 
-  workAccident: false,
   hospitalStay: false,
+
+  childName: "",
+  childBirthDate: "",
+  singleParent: false,
 
   parentalLeavePartTime: false,
 };
@@ -64,6 +76,7 @@ const absenceTypes = [
   { value: "sickness_without_certificate", label: "Krankheit ohne Attest" },
   { value: "sickness_with_certificate", label: "Krankheit mit Attest / eAU" },
   { value: "child_sickness", label: "Kind krank" },
+  { value: "work_accident", label: "Arbeitsunfall" },
   { value: "maternity_protection", label: "Mutterschutz" },
   { value: "parental_leave", label: "Elternzeit" },
   { value: "unpaid_leave", label: "Unbezahlte Freistellung" },
@@ -92,8 +105,7 @@ function getStatusClass(status?: string) {
 function isSicknessType(absenceType: string) {
   return (
     absenceType === "sickness_with_certificate" ||
-    absenceType === "sickness_without_certificate" ||
-    absenceType === "child_sickness"
+    absenceType === "sickness_without_certificate"
   );
 }
 
@@ -156,11 +168,17 @@ export default function EmployeeAbsenceRequest({
     }));
   }
 
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-
+  async function handleSubmit() {
     if (!formData.absenceType || !formData.startDate || !formData.endDate) {
       setMessage("Bitte Art der Fehlzeit und Zeitraum vollständig ausfüllen.");
+      return;
+    }
+
+    if (
+      formData.absenceType === "child_sickness" &&
+      (!formData.childName || !formData.childBirthDate)
+    ) {
+      setMessage("Bitte Name und Geburtsdatum des Kindes erfassen.");
       return;
     }
 
@@ -170,6 +188,7 @@ export default function EmployeeAbsenceRequest({
     try {
       const absenceLabel = getAbsenceLabel(formData.absenceType);
       const requiresEAU = formData.absenceType === "sickness_with_certificate";
+      const bgRelevant = formData.absenceType === "work_accident";
 
       await addDoc(collection(db, "companies", companyId, "absences"), {
         employeeId,
@@ -185,12 +204,17 @@ export default function EmployeeAbsenceRequest({
         halfDay: formData.halfDay,
         substitutePerson: formData.substitutePerson,
 
-        workAccident: formData.workAccident,
         hospitalStay: formData.hospitalStay,
         requiresEAU,
         eAUStatus: requiresEAU ? "to_be_requested" : "not_required",
 
+        childName: formData.childName,
+        childBirthDate: formData.childBirthDate,
+        singleParent: formData.singleParent,
+
         parentalLeavePartTime: formData.parentalLeavePartTime,
+
+        bgRelevant,
 
         status: "requested",
         requestedBy: employeeId,
@@ -229,7 +253,7 @@ export default function EmployeeAbsenceRequest({
         </p>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-4 rounded-xl border p-4">
+      <div className="space-y-4 rounded-xl border p-4">
         <h3 className="font-semibold">Neue Fehlzeit beantragen</h3>
 
         <div className="space-y-4">
@@ -290,9 +314,7 @@ export default function EmployeeAbsenceRequest({
               <input
                 className={inputClass}
                 value={formData.substitutePerson}
-                onChange={(e) =>
-                  updateField("substitutePerson", e.target.value)
-                }
+                onChange={(e) => updateField("substitutePerson", e.target.value)}
                 placeholder="Optional"
               />
             </FormField>
@@ -302,15 +324,6 @@ export default function EmployeeAbsenceRequest({
         {isSicknessType(formData.absenceType) && (
           <div className="space-y-4 rounded-xl border bg-blue-50 p-4">
             <h4 className="font-medium text-blue-900">Krankheitsdetails</h4>
-
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={formData.workAccident}
-                onChange={(e) => updateField("workAccident", e.target.checked)}
-              />
-              Arbeitsunfall
-            </label>
 
             <label className="flex items-center gap-2 text-sm">
               <input
@@ -327,6 +340,65 @@ export default function EmployeeAbsenceRequest({
                 Upload der AU ist im Standardfall nicht erforderlich.
               </div>
             )}
+          </div>
+        )}
+
+        {formData.absenceType === "child_sickness" && (
+          <div className="space-y-4 rounded-xl border bg-pink-50 p-4">
+            <h4 className="font-medium text-pink-900">Angaben zum Kind</h4>
+
+            <FormField label="Name des Kindes">
+              <input
+                className={inputClass}
+                value={formData.childName}
+                onChange={(e) => updateField("childName", e.target.value)}
+                required
+              />
+            </FormField>
+
+            <FormField label="Geburtsdatum des Kindes">
+              <input
+                type="date"
+                className={inputClass}
+                value={formData.childBirthDate}
+                onChange={(e) => updateField("childBirthDate", e.target.value)}
+                required
+              />
+            </FormField>
+
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={formData.singleParent}
+                onChange={(e) => updateField("singleParent", e.target.checked)}
+              />
+              Alleinerziehend
+            </label>
+
+            <div className="rounded-lg bg-white p-3 text-sm text-pink-900">
+              Payroll benötigt diese Angaben ggf. für Kinderkrankengeld und
+              SV-relevante Prüfungen.
+            </div>
+          </div>
+        )}
+
+        {formData.absenceType === "work_accident" && (
+          <div className="space-y-4 rounded-xl border bg-red-50 p-4">
+            <h4 className="font-medium text-red-900">Arbeitsunfall</h4>
+
+            <div className="rounded-lg bg-white p-3 text-sm text-red-900">
+              Diese Abwesenheit ist BG-relevant und muss ggf. an die
+              Berufsgenossenschaft gemeldet werden.
+            </div>
+
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={formData.hospitalStay}
+                onChange={(e) => updateField("hospitalStay", e.target.checked)}
+              />
+              Krankenhausaufenthalt
+            </label>
           </div>
         )}
 
@@ -357,13 +429,14 @@ export default function EmployeeAbsenceRequest({
         </FormField>
 
         <button
-          type="submit"
+          type="button"
+          onClick={handleSubmit}
           disabled={saving}
           className="rounded-xl bg-blue-900 px-5 py-3 font-medium text-white disabled:opacity-50"
         >
           {saving ? "Sendet..." : "Fehlzeit beantragen"}
         </button>
-      </form>
+      </div>
 
       <div className="space-y-3">
         <h3 className="font-semibold">Meine bisherigen Anträge</h3>
@@ -392,12 +465,6 @@ export default function EmployeeAbsenceRequest({
                       </span>
                     )}
 
-                    {absence.workAccident && (
-                      <span className="rounded-full bg-red-100 px-3 py-1 text-red-800">
-                        Arbeitsunfall
-                      </span>
-                    )}
-
                     {absence.hospitalStay && (
                       <span className="rounded-full bg-blue-100 px-3 py-1 text-blue-800">
                         Krankenhaus / Sondernachweis
@@ -407,6 +474,18 @@ export default function EmployeeAbsenceRequest({
                     {absence.requiresEAU && (
                       <span className="rounded-full bg-purple-100 px-3 py-1 text-purple-800">
                         eAU-Abruf erforderlich
+                      </span>
+                    )}
+
+                    {absence.childName && (
+                      <span className="rounded-full bg-pink-100 px-3 py-1 text-pink-800">
+                        Kind: {absence.childName}
+                      </span>
+                    )}
+
+                    {absence.bgRelevant && (
+                      <span className="rounded-full bg-red-100 px-3 py-1 text-red-800">
+                        BG-relevant
                       </span>
                     )}
                   </div>

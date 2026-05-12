@@ -1,7 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  setDoc,
+} from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import FormField from "@/components/FormField";
 
@@ -9,6 +15,13 @@ type Props = {
   companyId: string;
   employeeId: string;
   readOnly?: boolean;
+};
+
+type EmployeeOption = {
+  id: string;
+  firstName?: string;
+  lastName?: string;
+  email?: string;
 };
 
 const inputClass = "w-full rounded border p-3 disabled:bg-gray-100";
@@ -103,6 +116,10 @@ const initialFormData = {
   costUnit: "",
   onlineDocuments: "",
 
+  managerId: "",
+  managerName: "",
+  managerEmail: "",
+
   notes: "",
   confirmation: false,
 };
@@ -164,21 +181,33 @@ export default function EmployeeDetailForm({
   readOnly = false,
 }: Props) {
   const [formData, setFormData] = useState(initialFormData);
+  const [employees, setEmployees] = useState<EmployeeOption[]>([]);
   const [activeTab, setActiveTab] = useState<TabKey>("personal");
   const [initialLoading, setInitialLoading] = useState(true);
-  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
 
   useEffect(() => {
     async function loadEmployee() {
       try {
-        const ref = doc(db, "companies", companyId, "employees", employeeId);
-        const snap = await getDoc(ref);
+        const employeeRef = doc(db, "companies", companyId, "employees", employeeId);
+        const employeeSnap = await getDoc(employeeRef);
 
-        if (snap.exists()) {
+        const employeesSnap = await getDocs(
+          collection(db, "companies", companyId, "employees")
+        );
+
+        const employeeOptions = employeesSnap.docs.map((employeeDoc) => ({
+          id: employeeDoc.id,
+          ...(employeeDoc.data() as Omit<EmployeeOption, "id">),
+        }));
+
+        setEmployees(employeeOptions);
+
+        if (employeeSnap.exists()) {
           setFormData({
             ...initialFormData,
-            ...(snap.data() as Partial<typeof initialFormData>),
+            ...(employeeSnap.data() as Partial<typeof initialFormData>),
           });
         } else {
           setMessage("Mitarbeiter nicht gefunden ❌");
@@ -203,6 +232,21 @@ export default function EmployeeDetailForm({
     }));
   }
 
+  function updateManager(selectedId: string) {
+    if (readOnly) return;
+
+    const manager = employees.find((employee) => employee.id === selectedId);
+
+    setFormData((prev) => ({
+      ...prev,
+      managerId: selectedId,
+      managerName: manager
+        ? `${manager.firstName || ""} ${manager.lastName || ""}`.trim()
+        : "",
+      managerEmail: manager?.email || "",
+    }));
+  }
+
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
 
@@ -211,7 +255,7 @@ export default function EmployeeDetailForm({
       return;
     }
 
-    setLoading(true);
+    setSaving(true);
     setMessage("");
 
     try {
@@ -237,7 +281,7 @@ export default function EmployeeDetailForm({
       console.error(error);
       setMessage(`Fehler beim Speichern ❌ ${error.message}`);
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
   }
 
@@ -277,15 +321,18 @@ export default function EmployeeDetailForm({
               <TextField readOnly={readOnly} label="Geburtsland" value={formData.birthCountry} onChange={(value) => updateField("birthCountry", value)} />
               <TextField readOnly={readOnly} label="Nationalität" value={formData.nationality} onChange={(value) => updateField("nationality", value)} />
 
-              <FormField label="Geschlecht">
-                <select disabled={readOnly} className={inputClass} value={formData.gender} onChange={(e) => updateField("gender", e.target.value)}>
-                  <option value="">Bitte auswählen</option>
-                  <option value="female">Weiblich</option>
-                  <option value="male">Männlich</option>
-                  <option value="diverse">Divers</option>
-                  <option value="unknown">Unbestimmt</option>
-                </select>
-              </FormField>
+              <SelectField
+                readOnly={readOnly}
+                label="Geschlecht"
+                value={formData.gender}
+                onChange={(value) => updateField("gender", value)}
+                options={[
+                  ["female", "Weiblich"],
+                  ["male", "Männlich"],
+                  ["diverse", "Divers"],
+                  ["unknown", "Unbestimmt"],
+                ]}
+              />
             </Section>
           )}
 
@@ -406,6 +453,33 @@ export default function EmployeeDetailForm({
               <TextField readOnly={readOnly} label="Abteilungsnummer" value={formData.departmentNumber} onChange={(value) => updateField("departmentNumber", value)} />
               <TextField readOnly={readOnly} label="Kostenstelle" value={formData.costCenter} onChange={(value) => updateField("costCenter", value)} />
               <TextField readOnly={readOnly} label="Kostenträger" value={formData.costUnit} onChange={(value) => updateField("costUnit", value)} />
+
+              <FormField label="Vorgesetzter">
+                <select
+                  disabled={readOnly}
+                  className={inputClass}
+                  value={formData.managerId}
+                  onChange={(e) => updateManager(e.target.value)}
+                >
+                  <option value="">Bitte auswählen</option>
+
+                  {employees
+                    .filter((employee) => employee.id !== employeeId)
+                    .map((employee) => (
+                      <option key={employee.id} value={employee.id}>
+                        {employee.firstName} {employee.lastName}
+                      </option>
+                    ))}
+                </select>
+              </FormField>
+
+              {formData.managerName && (
+                <div className="rounded border bg-gray-50 p-3 text-sm text-gray-700">
+                  Aktueller Vorgesetzter: {formData.managerName}
+                  {formData.managerEmail ? ` · ${formData.managerEmail}` : ""}
+                </div>
+              )}
+
               <SelectField readOnly={readOnly} label="Arbeitnehmerüberlassung?" value={formData.temporaryAgencyWork} onChange={(value) => updateField("temporaryAgencyWork", value)} options={[["yes", "Ja"], ["no", "Nein"]]} />
               <SelectField readOnly={readOnly} label="Saisonarbeitnehmer?" value={formData.seasonalWorker} onChange={(value) => updateField("seasonalWorker", value)} options={[["yes", "Ja"], ["no", "Nein"]]} />
               <TextField readOnly={readOnly} label="Berufsausbildung" value={formData.professionalEducation} onChange={(value) => updateField("professionalEducation", value)} />
@@ -435,8 +509,12 @@ export default function EmployeeDetailForm({
 
       <div className="sticky bottom-4 flex items-center gap-4 rounded-2xl bg-white p-4 shadow">
         {!readOnly && (
-          <button type="submit" disabled={loading} className="rounded-xl bg-blue-900 px-6 py-3 font-medium text-white disabled:opacity-50">
-            {loading ? "Speichert..." : "Speichern"}
+          <button
+            type="submit"
+            disabled={saving}
+            className="rounded-xl bg-blue-900 px-6 py-3 font-medium text-white disabled:opacity-50"
+          >
+            {saving ? "Speichert..." : "Speichern"}
           </button>
         )}
 

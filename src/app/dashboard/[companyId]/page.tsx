@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import {
   collection,
   doc,
@@ -13,10 +12,6 @@ import {
   checkEmployeeReadiness,
   checkDocuments,
 } from "../../../lib/payrollReadiness";
-import { getCurrentUser } from "../../../lib/getCurrentUser";
-import { canAccessCompany } from "../../../lib/auth/roles";
-
-
 
 type EmployeeDashboardItem = {
   id: string;
@@ -38,11 +33,17 @@ type Absence = {
 function getAbsenceLabel(value?: string) {
   if (value === "vacation") return "Urlaub";
   if (value === "sickness") return "Krankheit";
+  if (value === "sickness_without_certificate") return "Krankheit ohne Attest";
+  if (value === "sickness_with_certificate") return "Krankheit mit Attest / eAU";
+  if (value === "child_sickness") return "Kind krank";
+  if (value === "work_accident") return "Arbeitsunfall";
   if (value === "unpaid_leave") return "Unbezahlte Freistellung";
   if (value === "maternity_leave") return "Mutterschutz";
+  if (value === "maternity_protection") return "Mutterschutz";
   if (value === "parental_leave") return "Elternzeit";
   if (value === "special_leave") return "Sonderurlaub";
   if (value === "care_leave") return "Pflegezeit";
+  if (value === "time_off_in_lieu") return "Freizeitausgleich";
   return "Sonstige Fehlzeit";
 }
 
@@ -53,7 +54,6 @@ export default async function DashboardPage({
 }) {
   const { companyId } = await params;
 
-
   const companySnap = await getDoc(doc(db, "companies", companyId));
   const company = companySnap.exists() ? companySnap.data() : {};
 
@@ -63,8 +63,9 @@ export default async function DashboardPage({
   if (!company.email) missingCompanyFields.push("E-Mail");
   if (!company.taxNumber) missingCompanyFields.push("Steuernummer");
   if (!company.companyNumber) missingCompanyFields.push("Betriebsnummer");
-  if (!company.bgCompanyNumber)
+  if (!company.bgCompanyNumber) {
     missingCompanyFields.push("BG-Unternehmensnummer");
+  }
   if (!company.bgPin) missingCompanyFields.push("BG PIN");
 
   const employeesSnap = await getDocs(

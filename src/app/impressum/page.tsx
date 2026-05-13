@@ -14,8 +14,8 @@ export default function ImpressumPage() {
 
             <div className="mt-4 space-y-1">
               <p>Northwind Payroll & HR Consulting GmbH</p>
-              <p>[Straße & Hausnummer]</p>
-              <p>[PLZ Ort]</p>
+              <p>Claus-von-Stauffenberg-Weg 1c</p>
+              <p>21684 Stade</p>
               <p>Deutschland</p>
             </div>
           </section>
@@ -36,7 +36,7 @@ export default function ImpressumPage() {
             </h2>
 
             <div className="mt-4 space-y-1">
-              <p>E-Mail: payroll@northwind-hr.de</p>
+              <p>E-Mail: kontakt@northwind-hr.de</p>
               <p>Web: northwind-hr.eu</p>
             </div>
           </section>
@@ -47,8 +47,8 @@ export default function ImpressumPage() {
             </h2>
 
             <div className="mt-4 space-y-1">
-              <p>Registergericht: [Registergericht]</p>
-              <p>Registernummer: [HRB Nummer]</p>
+              <p>Registergericht: Amtsgericht Tostedt</p>
+              <p>Registernummer: HRB 208053</p>
             </div>
           </section>
 
@@ -59,7 +59,7 @@ export default function ImpressumPage() {
 
             <p className="mt-4">
               Umsatzsteuer-Identifikationsnummer gemäß §27a UStG:
-              [USt-ID]
+              DE330524091
             </p>
           </section>
 
@@ -70,8 +70,8 @@ export default function ImpressumPage() {
 
             <div className="mt-4 space-y-1">
               <p>Roland Schrader</p>
-              <p>[Straße & Hausnummer]</p>
-              <p>[PLZ Ort]</p>
+              <p>Claus-von-Stauffenberg 1c</p>
+              <p>21684 Stade</p>
             </div>
           </section>
 

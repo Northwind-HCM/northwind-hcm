@@ -161,7 +161,7 @@ export default function CompanyAdminPage() {
 
   if (loading) {
     return (
-      <main className="space-y-6">
+      <main className="mx-auto max-w-7xl space-y-6 px-6 py-8">
         <h1 className="text-2xl font-bold">Mandant verwalten</h1>
         <div className="rounded-2xl bg-white p-6 shadow">Lade Mandant...</div>
       </main>
@@ -170,7 +170,7 @@ export default function CompanyAdminPage() {
 
   if (!company) {
     return (
-      <main className="space-y-6">
+      <main className="mx-auto max-w-7xl space-y-6 px-6 py-8">
         <h1 className="text-2xl font-bold">Mandant verwalten</h1>
         <p className="rounded-xl bg-red-50 p-4 text-red-700">
           {message || "Mandant nicht gefunden."}
@@ -183,7 +183,7 @@ export default function CompanyAdminPage() {
   }
 
   return (
-    <main className="space-y-6">
+    <main className="mx-auto max-w-7xl space-y-6 px-6 py-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">Mandant verwalten</h1>

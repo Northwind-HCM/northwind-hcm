@@ -12,9 +12,9 @@ export default function DatenschutzPage() {
             </p>
             <div className="mt-4 space-y-1">
               <p>Northwind Payroll & HR Consulting GmbH</p>
-              <p>[Straße & Hausnummer]</p>
-              <p>[PLZ Ort]</p>
-              <p>E-Mail: payroll@northwind-hr.de</p>
+              <p>Claus-von-Stauffenberg-Weg 1c</p>
+              <p>21684 Stade</p>
+              <p>E-Mail: kontakt@northwind-hr.de</p>
             </div>
           </section>
 

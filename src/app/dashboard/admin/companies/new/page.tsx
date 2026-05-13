@@ -55,7 +55,7 @@ export default function NewCompanyPage() {
   }
 
   return (
-    <main className="space-y-6">
+    <main className="mx-auto max-w-7xl space-y-6 px-6 py-8">
       <div>
         <h1 className="text-2xl font-bold">Mandant anlegen</h1>
         <p className="text-gray-600">

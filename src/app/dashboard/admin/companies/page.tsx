@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import {
   collection,
+  deleteDoc,
+  doc,
   getDocs,
   orderBy,
   query,
@@ -35,6 +37,7 @@ function getStatusClass(status?: string) {
 export default function CompaniesPage() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
+  const [deletingId, setDeletingId] = useState("");
   const [search, setSearch] = useState("");
 
   async function loadCompanies() {
@@ -62,6 +65,28 @@ export default function CompaniesPage() {
     }
   }
 
+  async function deleteCompany(company: Company) {
+    const name = company.companyName || "diesen Mandanten";
+
+    const confirmed = window.confirm(
+      `${name} wirklich löschen?\n\nAchtung: Dies löscht nur den Mandanten-Datensatz. Unterdaten wie Mitarbeiter, Benutzerzuordnungen oder Dokumente sollten später über eine saubere Archiv-/Löschlogik behandelt werden.`
+    );
+
+    if (!confirmed) return;
+
+    setDeletingId(company.id);
+
+    try {
+      await deleteDoc(doc(db, "companies", company.id));
+      await loadCompanies();
+    } catch (error) {
+      console.error(error);
+      alert("Mandant konnte nicht gelöscht werden.");
+    } finally {
+      setDeletingId("");
+    }
+  }
+
   useEffect(() => {
     loadCompanies();
   }, []);
@@ -72,12 +97,7 @@ export default function CompaniesPage() {
     if (!term) return companies;
 
     return companies.filter((company) =>
-      [
-        company.companyName,
-        company.email,
-        company.phone,
-        company.city,
-      ]
+      [company.companyName, company.email, company.phone, company.city]
         .filter(Boolean)
         .join(" ")
         .toLowerCase()
@@ -87,8 +107,9 @@ export default function CompaniesPage() {
 
   if (loading) {
     return (
-      <main className="space-y-6">
+      <main className="mx-auto max-w-7xl space-y-6 px-6 py-8">
         <h1 className="text-2xl font-bold">Mandanten</h1>
+
         <div className="rounded-2xl bg-white p-6 shadow">
           Lade Mandanten...
         </div>
@@ -97,21 +118,31 @@ export default function CompaniesPage() {
   }
 
   return (
-    <main className="space-y-6">
+    <main className="mx-auto max-w-7xl space-y-6 px-6 py-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">Mandanten</h1>
+
           <p className="text-gray-600">
             Firmen verwalten, neue Mandanten anlegen und Portale vorbereiten.
           </p>
         </div>
 
-        <Link
-          href="/dashboard/admin/companies/new"
-          className="rounded-xl bg-blue-900 px-5 py-3 font-medium text-white hover:bg-blue-800"
-        >
-          Mandant anlegen
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href="/dashboard"
+            className="rounded-xl bg-gray-100 px-5 py-3 font-medium text-gray-800 hover:bg-gray-200"
+          >
+            Zurück
+          </Link>
+
+          <Link
+            href="/dashboard/admin/companies/new"
+            className="rounded-xl bg-blue-900 px-5 py-3 font-medium text-white hover:bg-blue-800"
+          >
+            Mandant anlegen
+          </Link>
+        </div>
       </div>
 
       <section className="rounded-2xl bg-white p-6 shadow">
@@ -156,9 +187,8 @@ export default function CompaniesPage() {
                       <p className="font-medium">
                         {company.companyName || "Unbenannter Mandant"}
                       </p>
-                      <p className="text-xs text-gray-500">
-                        ID: {company.id}
-                      </p>
+
+                      <p className="text-xs text-gray-500">ID: {company.id}</p>
                     </td>
 
                     <td className="p-3">
@@ -167,6 +197,7 @@ export default function CompaniesPage() {
                       ) : (
                         <p className="text-gray-400">Keine E-Mail</p>
                       )}
+
                       {company.phone && (
                         <p className="text-xs text-gray-500">
                           {company.phone}
@@ -191,7 +222,7 @@ export default function CompaniesPage() {
                     </td>
 
                     <td className="p-3">
-                      <div className="flex justify-end gap-2">
+                      <div className="flex flex-wrap justify-end gap-2">
                         <Link
                           href={`/dashboard/${company.id}`}
                           className="rounded bg-blue-50 px-3 py-2 text-xs text-blue-800 hover:bg-blue-100"
@@ -205,6 +236,17 @@ export default function CompaniesPage() {
                         >
                           Verwalten
                         </Link>
+
+                        <button
+                          type="button"
+                          disabled={deletingId === company.id}
+                          onClick={() => deleteCompany(company)}
+                          className="rounded bg-red-50 px-3 py-2 text-xs text-red-700 hover:bg-red-100 disabled:opacity-50"
+                        >
+                          {deletingId === company.id
+                            ? "Löscht..."
+                            : "Löschen"}
+                        </button>
                       </div>
                     </td>
                   </tr>

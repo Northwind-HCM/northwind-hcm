@@ -159,7 +159,7 @@ export default function LeadsPage() {
 
   if (loading) {
     return (
-      <main className="space-y-6">
+      <main className="mx-auto max-w-7xl space-y-6 px-6 py-8">
         <h1 className="text-2xl font-bold">Early Access Leads</h1>
         <div className="rounded-2xl bg-white p-6 shadow">Lade Leads...</div>
       </main>
@@ -167,23 +167,24 @@ export default function LeadsPage() {
   }
 
   return (
-    <main className="space-y-6">
+    <main className="mx-auto max-w-7xl space-y-6 px-6 py-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold">Early Access Leads</h1>
-          <p className="text-gray-600">
-            Anfragen aus dem Early-Access-Formular verwalten und qualifizieren.
-          </p>
-        </div>
+  <div>
+    <h1 className="text-3xl font-bold">Early Access Leads</h1>
 
-        <button
-          type="button"
-          onClick={loadLeads}
-          className="rounded-xl bg-gray-100 px-4 py-2 text-sm font-medium hover:bg-gray-200"
-        >
-          Aktualisieren
-        </button>
-      </div>
+    <p className="text-gray-600">
+      Anfragen aus dem Early-Access-Formular verwalten und qualifizieren.
+    </p>
+  </div>
+
+  <button
+    type="button"
+    onClick={() => window.history.back()}
+    className="rounded-xl bg-gray-100 px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-200"
+  >
+    Zurück
+  </button>
+</div>
 
       {message && (
         <p className="rounded-xl bg-gray-50 p-3 text-sm text-gray-700">

@@ -2,8 +2,6 @@
 
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { doc, setDoc } from "firebase/firestore";
-import { db } from "@/lib/firebase";
 
 const inputClass = "w-full rounded-xl border p-3";
 
@@ -23,7 +21,6 @@ export default function NewCompanyUserPage() {
   const [message, setMessage] = useState("");
 
   const [formData, setFormData] = useState({
-    uid: "",
     email: "",
     displayName: "",
     role: "client_admin",
@@ -39,59 +36,70 @@ export default function NewCompanyUserPage() {
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+
     setSaving(true);
     setMessage("");
 
-    if (!formData.uid || !formData.email || !formData.role) {
-      setMessage("UID, E-Mail und Rolle sind erforderlich.");
-      setSaving(false);
-      return;
-    }
-
     try {
-      const now = new Date().toISOString();
-
-      await setDoc(
-        doc(db, "users", formData.uid),
-        {
-          uid: formData.uid,
-          email: formData.email.trim().toLowerCase(),
+      const response = await fetch("/api/admin/create-company-user", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          companyId,
+          email: formData.email,
           displayName: formData.displayName,
           role: formData.role,
-          companyId,
           employeeId: formData.employeeId,
-          accessScope: formData.role === "employee" ? "self" : "company",
-          createdAt: now,
-          updatedAt: now,
-        },
-        { merge: true }
-      );
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.error || "Benutzer konnte nicht erstellt werden.");
+        return;
+      }
 
       router.push(`/dashboard/admin/companies/${companyId}`);
     } catch (error: any) {
       console.error(error);
-      setMessage(`Benutzer konnte nicht zugeordnet werden: ${error.message}`);
+      setMessage(error.message || "Benutzer konnte nicht erstellt werden.");
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <main className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Benutzer zuordnen</h1>
-        <p className="text-gray-600">
-          Bestehenden Firebase-Auth-Benutzer einem Mandanten und einer Rolle
-          zuordnen.
-        </p>
-        <p className="mt-1 text-xs text-gray-500">Mandanten-ID: {companyId}</p>
+    <main className="mx-auto max-w-4xl space-y-6 px-6 py-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold">Benutzer einladen</h1>
+          <p className="text-gray-600">
+            Benutzer für diesen Mandanten erstellen, Rolle zuordnen und
+            Einladung per E-Mail versenden.
+          </p>
+          <p className="mt-1 text-xs text-gray-500">
+            Mandanten-ID: {companyId}
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => router.push(`/dashboard/admin/companies/${companyId}`)}
+          className="rounded-xl bg-gray-100 px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-200"
+        >
+          Zurück
+        </button>
       </div>
 
-      <section className="rounded-2xl border border-yellow-200 bg-yellow-50 p-5 text-sm text-yellow-900">
-        <p className="font-semibold">Wichtig</p>
+      <section className="rounded-2xl border border-blue-200 bg-blue-50 p-5 text-sm text-blue-900">
+        <p className="font-semibold">Hinweis</p>
         <p className="mt-1">
-          Der Benutzer muss vorher in Firebase Authentication angelegt werden.
-          Danach die UID aus Firebase Authentication hier eintragen.
+          Der Benutzer wird automatisch in Firebase Authentication angelegt,
+          dem Mandanten zugeordnet und erhält eine E-Mail zum Festlegen des
+          Passworts.
         </p>
       </section>
 
@@ -100,16 +108,6 @@ export default function NewCompanyUserPage() {
         className="space-y-5 rounded-2xl bg-white p-6 shadow"
       >
         <div className="grid gap-4 md:grid-cols-2">
-          <Field label="Firebase UID" required>
-            <input
-              className={inputClass}
-              value={formData.uid}
-              onChange={(e) => updateField("uid", e.target.value)}
-              placeholder="UID aus Firebase Authentication"
-              required
-            />
-          </Field>
-
           <Field label="E-Mail" required>
             <input
               type="email"
@@ -167,12 +165,14 @@ export default function NewCompanyUserPage() {
             disabled={saving}
             className="rounded-xl bg-blue-900 px-5 py-3 font-semibold text-white disabled:opacity-50"
           >
-            {saving ? "Speichert..." : "Benutzer zuordnen"}
+            {saving ? "Sendet Einladung..." : "Benutzer einladen"}
           </button>
 
           <button
             type="button"
-            onClick={() => router.push(`/dashboard/admin/companies/${companyId}`)}
+            onClick={() =>
+              router.push(`/dashboard/admin/companies/${companyId}`)
+            }
             className="rounded-xl bg-gray-100 px-5 py-3 font-semibold text-gray-800"
           >
             Abbrechen

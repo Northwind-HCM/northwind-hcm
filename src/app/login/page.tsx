@@ -41,11 +41,10 @@ export default function LoginSelectionPage() {
               Zugriff auf Self-Service und Dokumente.
             </p>
           </Link>
-
-          <Link
-            href="/admin/login"
-            className="rounded-2xl bg-white p-6 shadow transition hover:shadow-lg"
-          >
+<Link
+  href="/client/login"
+  className="rounded-2xl bg-white p-6 shadow transition hover:shadow-lg"
+>
             <h2 className="text-xl font-semibold text-blue-900">
               Northwind Admin
             </h2>

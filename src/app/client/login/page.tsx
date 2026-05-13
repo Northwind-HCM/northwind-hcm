@@ -12,8 +12,6 @@ const allowedRoles = [
   "team_lead",
 ];
 
-
-
 export default function ClientLoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -55,16 +53,16 @@ export default function ClientLoginPage() {
         return;
       }
 
-      if (!userData.companyId && userData.role !== "northwind_admin") {
-        setMessage("Keine Company ID im Benutzerprofil gefunden.");
-        document.cookie = "uid=; path=/; max-age=0; SameSite=Lax";
+      document.cookie = `uid=${firebaseUser.uid}; path=/; max-age=604800; SameSite=Lax`;
+
+      if (userData.role === "northwind_admin") {
+        window.location.href = "/dashboard";
         return;
       }
 
-      document.cookie = `uid=${firebaseUser.uid}; path=/; max-age=604800; SameSite=Lax`;
-
-      if (userData.role === "northwind_admin" && !userData.companyId) {
-        window.location.href = "/dashboard";
+      if (!userData.companyId) {
+        setMessage("Keine Company ID im Benutzerprofil gefunden.");
+        document.cookie = "uid=; path=/; max-age=0; SameSite=Lax";
         return;
       }
 

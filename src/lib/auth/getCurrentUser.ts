@@ -1,37 +1,32 @@
-import { onAuthStateChanged } from "firebase/auth";
+import { cookies } from "next/headers";
 import { doc, getDoc } from "firebase/firestore";
-import { auth, db } from "@/lib/firebase";
+import { db } from "@/lib/firebase";
 import type { AppUser } from "@/lib/auth/roles";
 
-export function getCurrentUser(): Promise<AppUser | null> {
-  return new Promise((resolve) => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      unsubscribe();
+export async function getCurrentUser(): Promise<AppUser | null> {
+  const cookieStore = await cookies();
+  const uid = cookieStore.get("uid")?.value;
 
-      if (!user) {
-        resolve(null);
-        return;
-      }
+  if (!uid) {
+    return null;
+  }
 
-      const userRef = doc(db, "users", user.uid);
-      const userSnap = await getDoc(userRef);
+  const userRef = doc(db, "users", uid);
+  const userSnap = await getDoc(userRef);
 
-      if (!userSnap.exists()) {
-        resolve(null);
-        return;
-      }
+  if (!userSnap.exists()) {
+    return null;
+  }
 
-      const data = userSnap.data();
+  const data = userSnap.data();
 
-      resolve({
-        uid: user.uid,
-        email: data.email,
-        role: data.role,
-        companyId: data.companyId,
-        employeeId: data.employeeId,
-        accessScope: data.accessScope ?? "company",
-        teamEmployeeIds: data.teamEmployeeIds ?? [],
-      });
-    });
-  });
+  return {
+    uid,
+    email: data.email,
+    role: data.role,
+    companyId: data.companyId,
+    employeeId: data.employeeId,
+    accessScope: data.accessScope ?? "company",
+    teamEmployeeIds: data.teamEmployeeIds ?? [],
+  };
 }

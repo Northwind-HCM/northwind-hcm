@@ -13,9 +13,9 @@ import {
   updateDoc,
 } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
-import { auth, db } from "../lib/firebase";
-import FormField from "./FormField";
-import { canApproveAbsence, type AppUser } from "../lib/auth/roles";
+import { auth, db } from "@/lib/firebase";
+import FormField from "@/components/FormField";
+import { canApproveAbsence, type AppUser } from "@/lib/auth/roles";
 
 type Props = {
   companyId: string;
@@ -56,6 +56,7 @@ type Absence = {
   hospitalStay?: boolean;
   requiresEAU?: boolean;
   eAUStatus?: string;
+  eauUploaded?: boolean;
 
   childName?: string;
   childBirthDate?: string;
@@ -73,7 +74,7 @@ type Absence = {
   rejectedBy?: string;
 };
 
-const inputClass = "w-full rounded border p-3";
+const inputClass = "w-full rounded-xl border p-3 disabled:bg-gray-100";
 
 const absenceTypes = [
   {
@@ -176,6 +177,10 @@ function getStatusClass(status?: AbsenceStatus) {
   return "bg-yellow-100 text-yellow-800";
 }
 
+function getEmployeeName(employee?: Employee) {
+  return `${employee?.firstName || ""} ${employee?.lastName || ""}`.trim();
+}
+
 function canApproveForEmployee(
   user: AppUser | null,
   companyId: string,
@@ -189,14 +194,12 @@ function canApproveForEmployee(
   });
 }
 
-function getEmployeeName(employee?: Employee) {
-  return `${employee?.firstName || ""} ${employee?.lastName || ""}`.trim();
-}
-
 export default function AbsenceManager({ companyId }: Props) {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [absences, setAbsences] = useState<Absence[]>([]);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
   const [message, setMessage] = useState("");
   const [user, setUser] = useState<AppUser | null>(null);
   const [statusFilter, setStatusFilter] = useState<"all" | AbsenceStatus>(
@@ -209,6 +212,18 @@ export default function AbsenceManager({ companyId }: Props) {
     startDate: "",
     endDate: "",
     notes: "",
+
+    halfDay: false,
+    substitutePerson: "",
+
+    hospitalStay: false,
+    eauUploaded: false,
+
+    childName: "",
+    childBirthDate: "",
+    singleParent: false,
+
+    parentalLeavePartTime: false,
   });
 
   useEffect(() => {
@@ -218,8 +233,7 @@ export default function AbsenceManager({ companyId }: Props) {
         return;
       }
 
-      const userRef = doc(db, "users", firebaseUser.uid);
-      const userSnap = await getDoc(userRef);
+      const userSnap = await getDoc(doc(db, "users", firebaseUser.uid));
 
       if (!userSnap.exists()) {
         setUser(null);
@@ -282,39 +296,93 @@ export default function AbsenceManager({ companyId }: Props) {
     loadData();
   }, [companyId]);
 
-  function updateField(key: keyof typeof formData, value: string) {
-    setFormData((prev) => ({ ...prev, [key]: value }));
+  function updateField(
+    key: keyof typeof formData,
+    value: string | boolean
+  ) {
+    setFormData((prev) => ({
+      ...prev,
+      [key]: value as never,
+    }));
+  }
+
+  function resetForm() {
+    setFormData({
+      employeeId: "",
+      absenceType: "",
+      startDate: "",
+      endDate: "",
+      notes: "",
+
+      halfDay: false,
+      substitutePerson: "",
+
+      hospitalStay: false,
+      eauUploaded: false,
+
+      childName: "",
+      childBirthDate: "",
+      singleParent: false,
+
+      parentalLeavePartTime: false,
+    });
   }
 
   async function updateStatus(absence: Absence, status: AbsenceStatus) {
     if (!canApproveForEmployee(user, companyId, absence.employeeId)) {
-      alert("Keine Berechtigung");
+      setMessage("Keine Berechtigung für diese Aktion.");
       return;
     }
 
     const now = new Date().toISOString();
 
-    await updateDoc(doc(db, "companies", companyId, "absences", absence.id), {
-      status,
-      updatedAt: now,
-      ...(status === "approved"
-        ? {
-            approvedAt: now,
-            approvedBy: user?.uid || "",
-          }
-        : {
-            rejectedAt: now,
-            rejectedBy: user?.uid || "",
-          }),
-    });
+    try {
+      await updateDoc(doc(db, "companies", companyId, "absences", absence.id), {
+        status,
+        updatedAt: now,
+        ...(status === "approved"
+          ? {
+              approvedAt: now,
+              approvedBy: user?.uid || "",
+            }
+          : {
+              rejectedAt: now,
+              rejectedBy: user?.uid || "",
+            }),
+      });
 
-    setMessage(
-      status === "approved"
-        ? "Fehlzeit wurde genehmigt ✅"
-        : "Fehlzeit wurde abgelehnt."
-    );
+      setMessage(
+        status === "approved"
+          ? "Fehlzeit wurde genehmigt ✅"
+          : "Fehlzeit wurde abgelehnt."
+      );
 
-    await loadData();
+      await loadData();
+    } catch (error: any) {
+      console.error(error);
+      setMessage(`Status konnte nicht geändert werden: ${error.message}`);
+    }
+  }
+
+  async function updateEAU(absence: Absence, eauUploaded: boolean) {
+    try {
+      await updateDoc(doc(db, "companies", companyId, "absences", absence.id), {
+        eauUploaded,
+        eAUStatus: eauUploaded ? "received" : "to_be_requested",
+        updatedAt: new Date().toISOString(),
+      });
+
+      setMessage(
+        eauUploaded
+          ? "eAU wurde als vorhanden markiert ✅"
+          : "eAU wurde wieder auf offen gesetzt."
+      );
+
+      await loadData();
+    } catch (error: any) {
+      console.error(error);
+      setMessage(`eAU-Status konnte nicht geändert werden: ${error.message}`);
+    }
   }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -332,48 +400,87 @@ export default function AbsenceManager({ companyId }: Props) {
       return;
     }
 
+    if (formData.endDate < formData.startDate) {
+      setMessage("Das Enddatum darf nicht vor dem Startdatum liegen.");
+      return;
+    }
+
+    if (
+      formData.absenceType === "child_sickness" &&
+      (!formData.childName || !formData.childBirthDate)
+    ) {
+      setMessage("Bitte Name und Geburtsdatum des Kindes erfassen.");
+      return;
+    }
+
     if (!canApproveForEmployee(user, companyId, employee.id)) {
       setMessage("Keine Berechtigung zum Anlegen dieser Fehlzeit.");
       return;
     }
 
-    const absenceType = getAbsenceType(formData.absenceType);
-    const requiresEAU = formData.absenceType === "sickness_with_certificate";
-    const bgRelevant = formData.absenceType === "work_accident";
+    setSaving(true);
+    setMessage("");
 
-    await addDoc(collection(db, "companies", companyId, "absences"), {
-      ...formData,
-      employeeName: getEmployeeName(employee),
-      employeeEmail: employee.email || "",
+    try {
+      const absenceType = getAbsenceType(formData.absenceType);
+      const requiresEAU = formData.absenceType === "sickness_with_certificate";
+      const bgRelevant = formData.absenceType === "work_accident";
 
-      managerId: employee.managerId || "",
-      managerName: employee.managerName || "",
-      managerEmail: employee.managerEmail || "",
+      await addDoc(collection(db, "companies", companyId, "absences"), {
+        employeeId: formData.employeeId,
+        employeeName: getEmployeeName(employee),
+        employeeEmail: employee.email || "",
 
-      absenceLabel: absenceType?.label || "",
-      requiresDocument: absenceType?.requiresDocument ?? false,
-      payrollRelevant: absenceType?.payrollRelevant ?? true,
-      requiresEAU,
-      eAUStatus: requiresEAU ? "to_be_requested" : "not_required",
-      bgRelevant,
+        managerId: employee.managerId || "",
+        managerName: employee.managerName || "",
+        managerEmail: employee.managerEmail || "",
 
-      approvalRequired: true,
-      approvalLevel: 1,
-      status: "requested",
-      createdAt: serverTimestamp(),
-      updatedAt: new Date().toISOString(),
-    });
+        absenceType: formData.absenceType,
+        absenceLabel: absenceType?.label || "",
+        startDate: formData.startDate,
+        endDate: formData.endDate,
+        notes: formData.notes,
 
-    setFormData({
-      employeeId: "",
-      absenceType: "",
-      startDate: "",
-      endDate: "",
-      notes: "",
-    });
+        halfDay: formData.halfDay,
+        substitutePerson: formData.substitutePerson,
 
-    setMessage("Fehlzeit gespeichert ✅");
-    await loadData();
+        hospitalStay: formData.hospitalStay,
+        requiresEAU,
+        eAUStatus: requiresEAU
+          ? formData.eauUploaded
+            ? "received"
+            : "to_be_requested"
+          : "not_required",
+        eauUploaded: requiresEAU ? formData.eauUploaded : false,
+
+        childName: formData.childName,
+        childBirthDate: formData.childBirthDate,
+        singleParent: formData.singleParent,
+
+        parentalLeavePartTime: formData.parentalLeavePartTime,
+
+        bgRelevant,
+        payrollRelevant: absenceType?.payrollRelevant ?? true,
+        requiresDocument: absenceType?.requiresDocument ?? false,
+
+        approvalRequired: true,
+        approvalLevel: 1,
+        status: "requested",
+
+        createdBy: user?.uid || "",
+        createdAt: serverTimestamp(),
+        updatedAt: new Date().toISOString(),
+      });
+
+      resetForm();
+      setMessage("Fehlzeit gespeichert ✅");
+      await loadData();
+    } catch (error: any) {
+      console.error(error);
+      setMessage(`Fehlzeit konnte nicht gespeichert werden: ${error.message}`);
+    } finally {
+      setSaving(false);
+    }
   }
 
   const canCreateAbsence =
@@ -390,15 +497,29 @@ export default function AbsenceManager({ companyId }: Props) {
   const requestedCount = absences.filter(
     (absence) => absence.status === "requested"
   ).length;
+
   const approvedCount = absences.filter(
     (absence) => absence.status === "approved"
   ).length;
+
   const rejectedCount = absences.filter(
     (absence) => absence.status === "rejected"
   ).length;
 
+  const eAUOpenCount = absences.filter(
+    (absence) => absence.requiresEAU && !absence.eauUploaded
+  ).length;
+
+  const bgRelevantCount = absences.filter(
+    (absence) => absence.bgRelevant
+  ).length;
+
   if (loading) {
-    return <p>Lade Fehlzeiten...</p>;
+    return (
+      <section className="rounded-2xl bg-white p-6 shadow">
+        Lade Fehlzeiten...
+      </section>
+    );
   }
 
   return (
@@ -406,31 +527,23 @@ export default function AbsenceManager({ companyId }: Props) {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">Fehlzeiten</h1>
+
           <p className="text-gray-600">
             Abwesenheiten erfassen, prüfen und genehmigen.
           </p>
         </div>
 
-        <div className="grid grid-cols-3 gap-2 text-center text-sm">
-          <div className="rounded-xl bg-yellow-50 px-4 py-3 text-yellow-800">
-            <p className="text-xs">Beantragt</p>
-            <p className="text-xl font-bold">{requestedCount}</p>
-          </div>
-
-          <div className="rounded-xl bg-green-50 px-4 py-3 text-green-800">
-            <p className="text-xs">Genehmigt</p>
-            <p className="text-xl font-bold">{approvedCount}</p>
-          </div>
-
-          <div className="rounded-xl bg-red-50 px-4 py-3 text-red-800">
-            <p className="text-xs">Abgelehnt</p>
-            <p className="text-xl font-bold">{rejectedCount}</p>
-          </div>
+        <div className="grid grid-cols-2 gap-2 text-center text-sm md:grid-cols-5">
+          <SummaryCard label="Beantragt" value={requestedCount} color="yellow" />
+          <SummaryCard label="Genehmigt" value={approvedCount} color="green" />
+          <SummaryCard label="Abgelehnt" value={rejectedCount} color="red" />
+          <SummaryCard label="eAU offen" value={eAUOpenCount} color="purple" />
+          <SummaryCard label="BG" value={bgRelevantCount} color="red" />
         </div>
       </div>
 
       {message && (
-        <p className="rounded-lg bg-gray-50 p-3 text-sm text-gray-700">
+        <p className="rounded-xl bg-gray-50 p-3 text-sm text-gray-700">
           {message}
         </p>
       )}
@@ -438,7 +551,7 @@ export default function AbsenceManager({ companyId }: Props) {
       {canCreateAbsence && (
         <form
           onSubmit={handleSubmit}
-          className="space-y-4 rounded-2xl bg-white p-6 shadow"
+          className="space-y-5 rounded-2xl bg-white p-6 shadow"
         >
           <h2 className="text-xl font-semibold">Neue Abwesenheit erfassen</h2>
 
@@ -519,9 +632,135 @@ export default function AbsenceManager({ companyId }: Props) {
             </div>
           )}
 
+          {formData.absenceType === "vacation" && (
+            <DetailBox title="Urlaubsdetails">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={formData.halfDay}
+                  onChange={(e) => updateField("halfDay", e.target.checked)}
+                />
+                Halber Urlaubstag
+              </label>
+
+              <FormField label="Vertretung">
+                <input
+                  className={inputClass}
+                  value={formData.substitutePerson}
+                  onChange={(e) =>
+                    updateField("substitutePerson", e.target.value)
+                  }
+                  placeholder="Optional"
+                />
+              </FormField>
+            </DetailBox>
+          )}
+
+          {(formData.absenceType === "sickness_with_certificate" ||
+            formData.absenceType === "sickness_without_certificate") && (
+            <DetailBox title="Krankheitsdetails" tone="blue">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={formData.hospitalStay}
+                  onChange={(e) => updateField("hospitalStay", e.target.checked)}
+                />
+                Krankenhausaufenthalt / Sondernachweis
+              </label>
+
+              {formData.absenceType === "sickness_with_certificate" && (
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={formData.eauUploaded}
+                    onChange={(e) =>
+                      updateField("eauUploaded", e.target.checked)
+                    }
+                  />
+                  eAU liegt bereits vor
+                </label>
+              )}
+
+              {formData.absenceType === "sickness_with_certificate" && (
+                <p className="rounded-lg bg-white p-3 text-sm text-blue-900">
+                  Die eAU wird durch Payroll bzw. Arbeitgeber abgerufen. Dieser
+                  Status fließt in die Payroll Readiness ein.
+                </p>
+              )}
+            </DetailBox>
+          )}
+
+          {formData.absenceType === "child_sickness" && (
+            <DetailBox title="Angaben zum Kind" tone="pink">
+              <FormField label="Name des Kindes">
+                <input
+                  className={inputClass}
+                  value={formData.childName}
+                  onChange={(e) => updateField("childName", e.target.value)}
+                  required
+                />
+              </FormField>
+
+              <FormField label="Geburtsdatum des Kindes">
+                <input
+                  type="date"
+                  className={inputClass}
+                  value={formData.childBirthDate}
+                  onChange={(e) =>
+                    updateField("childBirthDate", e.target.value)
+                  }
+                  required
+                />
+              </FormField>
+
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={formData.singleParent}
+                  onChange={(e) => updateField("singleParent", e.target.checked)}
+                />
+                Alleinerziehend
+              </label>
+            </DetailBox>
+          )}
+
+          {formData.absenceType === "work_accident" && (
+            <DetailBox title="Arbeitsunfall" tone="red">
+              <p className="rounded-lg bg-white p-3 text-sm text-red-900">
+                Diese Abwesenheit ist BG-relevant und muss ggf. an die
+                Berufsgenossenschaft gemeldet werden.
+              </p>
+
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={formData.hospitalStay}
+                  onChange={(e) => updateField("hospitalStay", e.target.checked)}
+                />
+                Krankenhausaufenthalt
+              </label>
+            </DetailBox>
+          )}
+
+          {formData.absenceType === "parental_leave" && (
+            <DetailBox title="Elternzeit">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={formData.parentalLeavePartTime}
+                  onChange={(e) =>
+                    updateField("parentalLeavePartTime", e.target.checked)
+                  }
+                />
+                Teilzeit während Elternzeit
+              </label>
+            </DetailBox>
+          )}
+
           {formData.absenceType && (
             <div className="rounded-xl bg-blue-50 p-4 text-sm text-blue-900">
               <p className="font-medium">Payroll-Hinweis</p>
+
               <p className="mt-1">
                 {formData.absenceType === "sickness_with_certificate"
                   ? "Die eAU wird durch Payroll / Arbeitgeber abgerufen."
@@ -534,14 +773,19 @@ export default function AbsenceManager({ companyId }: Props) {
 
           <FormField label="Hinweise">
             <textarea
-              className="min-h-24 w-full rounded border p-3"
+              className="min-h-24 w-full rounded-xl border p-3"
               value={formData.notes}
               onChange={(e) => updateField("notes", e.target.value)}
+              placeholder="Optional: Hinweise zur Fehlzeit"
             />
           </FormField>
 
-          <button className="rounded bg-blue-900 px-4 py-2 text-white">
-            Speichern
+          <button
+            type="submit"
+            disabled={saving}
+            className="rounded-xl bg-blue-900 px-5 py-3 font-semibold text-white disabled:opacity-50"
+          >
+            {saving ? "Speichert..." : "Fehlzeit speichern"}
           </button>
         </form>
       )}
@@ -574,7 +818,9 @@ export default function AbsenceManager({ companyId }: Props) {
         </div>
 
         {filteredAbsences.length === 0 ? (
-          <p className="text-gray-600">Keine passenden Abwesenheiten vorhanden.</p>
+          <p className="text-gray-600">
+            Keine passenden Abwesenheiten vorhanden.
+          </p>
         ) : (
           <div className="space-y-3">
             {filteredAbsences.map((absence) => (
@@ -609,9 +855,21 @@ export default function AbsenceManager({ companyId }: Props) {
                       )}
 
                       {absence.requiresEAU && (
-                        <span className="rounded-full bg-purple-100 px-3 py-1 text-purple-800">
-                          eAU-Abruf erforderlich
-                        </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateEAU(absence, !absence.eauUploaded)
+                          }
+                          className={`rounded-full px-3 py-1 ${
+                            absence.eauUploaded
+                              ? "bg-green-100 text-green-800"
+                              : "bg-purple-100 text-purple-800"
+                          }`}
+                        >
+                          {absence.eauUploaded
+                            ? "eAU vorhanden"
+                            : "eAU offen"}
+                        </button>
                       )}
 
                       {absence.bgRelevant && (
@@ -686,6 +944,54 @@ export default function AbsenceManager({ companyId }: Props) {
           </div>
         )}
       </section>
+    </div>
+  );
+}
+
+function SummaryCard({
+  label,
+  value,
+  color,
+}: {
+  label: string;
+  value: number;
+  color: "yellow" | "green" | "red" | "purple";
+}) {
+  const classes = {
+    yellow: "bg-yellow-50 text-yellow-800",
+    green: "bg-green-50 text-green-800",
+    red: "bg-red-50 text-red-800",
+    purple: "bg-purple-50 text-purple-800",
+  };
+
+  return (
+    <div className={`rounded-xl px-4 py-3 ${classes[color]}`}>
+      <p className="text-xs">{label}</p>
+      <p className="text-xl font-bold">{value}</p>
+    </div>
+  );
+}
+
+function DetailBox({
+  title,
+  tone = "gray",
+  children,
+}: {
+  title: string;
+  tone?: "gray" | "blue" | "pink" | "red";
+  children: React.ReactNode;
+}) {
+  const classes = {
+    gray: "border-gray-200 bg-gray-50 text-gray-900",
+    blue: "border-blue-200 bg-blue-50 text-blue-900",
+    pink: "border-pink-200 bg-pink-50 text-pink-900",
+    red: "border-red-200 bg-red-50 text-red-900",
+  };
+
+  return (
+    <div className={`space-y-4 rounded-xl border p-4 ${classes[tone]}`}>
+      <h4 className="font-medium">{title}</h4>
+      {children}
     </div>
   );
 }

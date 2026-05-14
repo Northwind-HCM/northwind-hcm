@@ -132,6 +132,19 @@ export default function DashboardPage() {
           </p>
         </Link>
 
+<Link
+  href="/dashboard/admin/users"
+  className="rounded-2xl bg-white p-6 shadow transition hover:shadow-md"
+>
+  <p className="text-sm text-gray-500">Administration</p>
+  <h2 className="mt-2 text-xl font-bold text-blue-900">
+    Benutzer verwalten
+  </h2>
+  <p className="mt-2 text-sm text-gray-600">
+    Rollen, Mandanten und Zugriffe zentral steuern.
+  </p>
+</Link>
+
         <Link
           href="/"
           className="rounded-2xl bg-white p-6 shadow transition hover:shadow-md"

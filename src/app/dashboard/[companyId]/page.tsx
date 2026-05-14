@@ -1,4 +1,8 @@
+"use client";
+
 import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import { useParams } from "next/navigation";
 import {
   collection,
   doc,
@@ -7,11 +11,20 @@ import {
   query,
   where,
 } from "firebase/firestore";
-import { db } from "../../../lib/firebase";
+import { db } from "@/lib/firebase";
 import {
   checkEmployeeReadiness,
   checkDocuments,
-} from "../../../lib/payrollReadiness";
+} from "@/lib/payrollReadiness";
+
+type CompanyData = {
+  companyName?: string;
+  email?: string;
+  taxNumber?: string;
+  companyNumber?: string;
+  bgCompanyNumber?: string;
+  bgPin?: string;
+};
 
 type EmployeeDashboardItem = {
   id: string;
@@ -47,74 +60,112 @@ function getAbsenceLabel(value?: string) {
   return "Sonstige Fehlzeit";
 }
 
-export default async function DashboardPage({
-  params,
-}: {
-  params: Promise<{ companyId: string }>;
-}) {
-  const { companyId } = await params;
-
-  const companySnap = await getDoc(doc(db, "companies", companyId));
-  const company = companySnap.exists() ? companySnap.data() : {};
-
+function getMissingCompanyFields(company: CompanyData) {
   const missingCompanyFields: string[] = [];
 
   if (!company.companyName) missingCompanyFields.push("Firmenname");
   if (!company.email) missingCompanyFields.push("E-Mail");
   if (!company.taxNumber) missingCompanyFields.push("Steuernummer");
   if (!company.companyNumber) missingCompanyFields.push("Betriebsnummer");
-  if (!company.bgCompanyNumber) {
-    missingCompanyFields.push("BG-Unternehmensnummer");
-  }
+  if (!company.bgCompanyNumber) missingCompanyFields.push("BG-Unternehmensnummer");
   if (!company.bgPin) missingCompanyFields.push("BG PIN");
 
-  const employeesSnap = await getDocs(
-    collection(db, "companies", companyId, "employees")
-  );
+  return missingCompanyFields;
+}
 
-  const employees = (await Promise.all(
-    employeesSnap.docs.map(async (employeeDoc) => {
-      const employeeData = employeeDoc.data();
+export default function CompanyDashboardPage() {
+  const params = useParams();
+  const companyId = String(params.companyId);
 
-      const documentsSnap = await getDocs(
-        collection(
-          db,
-          "companies",
-          companyId,
-          "employees",
-          employeeDoc.id,
-          "documents"
+  const [company, setCompany] = useState<CompanyData>({});
+  const [employees, setEmployees] = useState<EmployeeDashboardItem[]>([]);
+  const [openAbsences, setOpenAbsences] = useState<Absence[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState("");
+
+  async function loadDashboardData() {
+    setLoading(true);
+    setMessage("");
+
+    try {
+      const companySnap = await getDoc(doc(db, "companies", companyId));
+      const companyData = companySnap.exists()
+        ? (companySnap.data() as CompanyData)
+        : {};
+
+      const employeesSnap = await getDocs(
+        collection(db, "companies", companyId, "employees")
+      );
+
+      const employeeItems = await Promise.all(
+        employeesSnap.docs.map(async (employeeDoc) => {
+          const employeeData = employeeDoc.data();
+
+          let documents: any[] = [];
+
+          try {
+            const documentsSnap = await getDocs(
+              collection(
+                db,
+                "companies",
+                companyId,
+                "employees",
+                employeeDoc.id,
+                "documents"
+              )
+            );
+
+            documents = documentsSnap.docs.map((documentDoc) =>
+              documentDoc.data()
+            );
+          } catch {
+            documents = [];
+          }
+
+          const employeeCheck = checkEmployeeReadiness(employeeData);
+          const documentCheck = checkDocuments(employeeData, documents);
+
+          return {
+            id: employeeDoc.id,
+            firstName: employeeData.firstName || "",
+            lastName: employeeData.lastName || "",
+            ready: employeeCheck.ready && documentCheck.ready,
+            missing: [...employeeCheck.missing, ...documentCheck.missing],
+          };
+        })
+      );
+
+      const absencesSnap = await getDocs(
+        query(
+          collection(db, "companies", companyId, "absences"),
+          where("status", "==", "requested")
         )
       );
 
-      const documents = documentsSnap.docs.map((documentDoc) =>
-        documentDoc.data()
-      );
+      const absenceData = absencesSnap.docs.map((absenceDoc) => ({
+        id: absenceDoc.id,
+        ...absenceDoc.data(),
+      })) as Absence[];
 
-      const employeeCheck = checkEmployeeReadiness(employeeData);
-      const documentCheck = checkDocuments(employeeData, documents);
+      setCompany(companyData);
+      setEmployees(employeeItems);
+      setOpenAbsences(absenceData);
+    } catch (error: any) {
+      console.error(error);
+      setMessage(`Dashboard konnte nicht geladen werden: ${error.message}`);
+    } finally {
+      setLoading(false);
+    }
+  }
 
-      return {
-        id: employeeDoc.id,
-        firstName: employeeData.firstName || "",
-        lastName: employeeData.lastName || "",
-        ready: employeeCheck.ready && documentCheck.ready,
-        missing: [...employeeCheck.missing, ...documentCheck.missing],
-      };
-    })
-  )) as EmployeeDashboardItem[];
+  useEffect(() => {
+    loadDashboardData();
+  }, [companyId]);
 
-  const absencesSnap = await getDocs(
-    query(
-      collection(db, "companies", companyId, "absences"),
-      where("status", "==", "requested")
-    )
+  const missingCompanyFields = useMemo(
+    () => getMissingCompanyFields(company),
+    [company]
   );
-
-  const openAbsences = absencesSnap.docs.map((absenceDoc) => ({
-    id: absenceDoc.id,
-    ...absenceDoc.data(),
-  })) as Absence[];
 
   const totalEmployees = employees.length;
   const readyEmployees = employees.filter((employee) => employee.ready);
@@ -133,8 +184,18 @@ export default async function DashboardPage({
   const totalOpenTasks =
     missingCompanyFields.length + notReadyEmployees.length + openAbsences.length;
 
+  if (loading) {
+    return (
+      <main className="mx-auto max-w-7xl space-y-6 px-6 py-8">
+        <section className="rounded-2xl bg-white p-6 shadow">
+          Lade Dashboard...
+        </section>
+      </main>
+    );
+  }
+
   return (
-    <main className="space-y-6">
+    <main className="mx-auto max-w-7xl space-y-6 px-6 py-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">Dashboard</h1>
@@ -150,6 +211,12 @@ export default async function DashboardPage({
           Mitarbeiter hinzufügen
         </Link>
       </div>
+
+      {message && (
+        <p className="rounded-xl bg-red-50 p-4 text-sm text-red-700">
+          {message}
+        </p>
+      )}
 
       {missingCompanyFields.length > 0 && (
         <section className="rounded-2xl border border-yellow-300 bg-yellow-50 p-5">
@@ -180,9 +247,11 @@ export default async function DashboardPage({
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <p className="text-sm text-gray-500">Status Lohnabrechnung</p>
+
             <h2 className="mt-1 text-2xl font-bold">
               {payrollReady ? "Bereit für die Abrechnung" : "Noch nicht bereit"}
             </h2>
+
             <p className="mt-2 text-sm text-gray-600">
               {payrollReady
                 ? "Alle Firmendaten, Mitarbeiterdaten und Pflichtdokumente sind vorhanden."
@@ -248,6 +317,7 @@ export default async function DashboardPage({
         <div className="rounded-2xl bg-white p-6 shadow">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-xl font-semibold">Was ist offen?</h2>
+
             <Link
               href={`/dashboard/${companyId}/tasks`}
               className="text-sm font-medium text-blue-900"
@@ -261,9 +331,11 @@ export default async function DashboardPage({
               <p className="font-medium text-yellow-900">
                 Firmendaten unvollständig
               </p>
+
               <p className="mt-1 text-sm text-yellow-800">
                 Fehlend: {missingCompanyFields.join(", ")}
               </p>
+
               <Link
                 href={`/dashboard/${companyId}/company-data`}
                 className="mt-3 inline-block rounded bg-yellow-600 px-3 py-2 text-sm text-white"
@@ -284,9 +356,11 @@ export default async function DashboardPage({
                   <p className="font-medium">
                     {employee.firstName} {employee.lastName}
                   </p>
+
                   <p className="mt-1 text-sm text-red-700">
                     Fehlend: {employee.missing.join(", ")}
                   </p>
+
                   <Link
                     href={`/dashboard/${companyId}/employees/${employee.id}`}
                     className="mt-3 inline-block rounded bg-gray-100 px-3 py-2 text-sm hover:bg-gray-200"
@@ -302,6 +376,7 @@ export default async function DashboardPage({
         <div className="rounded-2xl bg-white p-6 shadow">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-xl font-semibold">Offene Anträge</h2>
+
             <Link
               href={`/dashboard/${companyId}/absences`}
               className="text-sm font-medium text-blue-900"
@@ -319,10 +394,12 @@ export default async function DashboardPage({
               {openAbsences.slice(0, 5).map((absence) => (
                 <div key={absence.id} className="rounded-xl border p-4">
                   <p className="font-medium">{absence.employeeName}</p>
+
                   <p className="mt-1 text-sm text-gray-600">
                     {getAbsenceLabel(absence.absenceType)} ·{" "}
                     {absence.startDate} bis {absence.endDate}
                   </p>
+
                   <span className="mt-3 inline-block rounded-full bg-yellow-100 px-3 py-1 text-xs font-medium text-yellow-800">
                     Beantragt
                   </span>
@@ -342,6 +419,20 @@ export default async function DashboardPage({
             className="rounded-xl bg-blue-900 px-4 py-3 text-sm font-medium text-white hover:bg-blue-800"
           >
             Mitarbeiter verwalten
+          </Link>
+
+          <Link
+            href={`/dashboard/${companyId}/monthly`}
+            className="rounded-xl bg-gray-100 px-4 py-3 text-sm font-medium hover:bg-gray-200"
+          >
+            Monatsübersicht
+          </Link>
+
+          <Link
+            href={`/dashboard/${companyId}/tasks`}
+            className="rounded-xl bg-gray-100 px-4 py-3 text-sm font-medium hover:bg-gray-200"
+          >
+            Aufgaben verwalten
           </Link>
 
           <Link

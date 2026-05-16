@@ -5,12 +5,24 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import {
   collection,
+  doc,
+  getDoc,
   getDocs,
   orderBy,
   query,
+  setDoc,
+  updateDoc,
   where,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import {
+  getDefaultPayrollCycle,
+  getPayrollCycleId,
+  type PayrollCycle,
+  type PayrollCycleStep,
+  type PayrollCycleStatus,
+  type PayrollCycleStepStatus,
+} from "@/lib/payroll/payrollCycle";
 
 type Employee = {
   id: string;
@@ -59,6 +71,21 @@ const months = [
   "Dezember",
 ];
 
+const cycleStatuses: { value: PayrollCycleStatus; label: string }[] = [
+  { value: "open", label: "Offen" },
+  { value: "in_progress", label: "In Bearbeitung" },
+  { value: "ready_for_review", label: "Bereit zur Prüfung" },
+  { value: "approved", label: "Freigegeben" },
+  { value: "closed", label: "Abgeschlossen" },
+];
+
+const stepStatuses: { value: PayrollCycleStepStatus; label: string }[] = [
+  { value: "open", label: "Offen" },
+  { value: "in_progress", label: "In Bearbeitung" },
+  { value: "completed", label: "Erledigt" },
+  { value: "blocked", label: "Blockiert" },
+];
+
 function getMonthRange(year: number, month: number) {
   const start = new Date(year, month, 1);
   const end = new Date(year, month + 1, 0);
@@ -69,7 +96,11 @@ function getMonthRange(year: number, month: number) {
   return { start, end, startIso, endIso };
 }
 
-function isEmployeeActiveInMonth(employee: Employee, startIso: string, endIso: string) {
+function isEmployeeActiveInMonth(
+  employee: Employee,
+  startIso: string,
+  endIso: string
+) {
   const entryDate = employee.entryDate || "";
   const exitDate = employee.exitDate || "";
 
@@ -112,21 +143,39 @@ function getStatusLabel(status?: string) {
   if (status === "rejected") return "Abgelehnt";
   if (status === "done") return "Erledigt";
   if (status === "completed") return "Erledigt";
+  if (status === "in_progress") return "In Bearbeitung";
+  if (status === "ready_for_review") return "Bereit zur Prüfung";
+  if (status === "closed") return "Abgeschlossen";
+  if (status === "blocked") return "Blockiert";
   return "Offen";
 }
 
 function getStatusClass(status?: string) {
-  if (status === "approved" || status === "done" || status === "completed") {
+  if (
+    status === "approved" ||
+    status === "done" ||
+    status === "completed" ||
+    status === "closed"
+  ) {
     return "bg-green-100 text-green-800";
   }
 
-  if (status === "rejected") return "bg-red-100 text-red-800";
+  if (status === "rejected" || status === "blocked") {
+    return "bg-red-100 text-red-800";
+  }
+
+  if (status === "in_progress" || status === "ready_for_review") {
+    return "bg-blue-100 text-blue-800";
+  }
 
   return "bg-yellow-100 text-yellow-800";
 }
 
 function fullName(employee: Employee) {
-  return `${employee.firstName || ""} ${employee.lastName || ""}`.trim() || "Unbenannter Mitarbeiter";
+  return (
+    `${employee.firstName || ""} ${employee.lastName || ""}`.trim() ||
+    "Unbenannter Mitarbeiter"
+  );
 }
 
 export default function MonthlyPage() {
@@ -141,8 +190,10 @@ export default function MonthlyPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [absences, setAbsences] = useState<Absence[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [cycle, setCycle] = useState<PayrollCycle | null>(null);
 
   const [loading, setLoading] = useState(true);
+  const [savingCycle, setSavingCycle] = useState(false);
   const [message, setMessage] = useState("");
 
   const { startIso, endIso } = useMemo(
@@ -150,11 +201,51 @@ export default function MonthlyPage() {
     [selectedYear, selectedMonth]
   );
 
+  const cycleId = useMemo(
+    () => getPayrollCycleId(selectedYear, selectedMonth),
+    [selectedYear, selectedMonth]
+  );
+
+  async function loadPayrollCycle() {
+    const cycleRef = doc(db, "companies", companyId, "payrollCycles", cycleId);
+    const cycleSnap = await getDoc(cycleRef);
+
+    if (cycleSnap.exists()) {
+      setCycle({
+        id: cycleSnap.id,
+        ...cycleSnap.data(),
+      } as PayrollCycle);
+
+      return;
+    }
+
+    const defaultCycle = getDefaultPayrollCycle({
+      year: selectedYear,
+      month: selectedMonth,
+    });
+
+    const nowIso = new Date().toISOString();
+
+    await setDoc(cycleRef, {
+      ...defaultCycle,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    });
+
+    setCycle({
+      ...defaultCycle,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    });
+  }
+
   async function loadMonthData() {
     setLoading(true);
     setMessage("");
 
     try {
+      await loadPayrollCycle();
+
       const employeesSnap = await getDocs(
         collection(db, "companies", companyId, "employees")
       );
@@ -203,6 +294,68 @@ export default function MonthlyPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function saveCycle(update: Partial<PayrollCycle>) {
+    if (!cycle) return;
+
+    setSavingCycle(true);
+    setMessage("");
+
+    try {
+      const updatedCycle = {
+        ...cycle,
+        ...update,
+        updatedAt: new Date().toISOString(),
+      };
+
+      await updateDoc(doc(db, "companies", companyId, "payrollCycles", cycle.id), {
+        ...update,
+        updatedAt: updatedCycle.updatedAt,
+      });
+
+      setCycle(updatedCycle);
+      setMessage("Payroll Cycle gespeichert ✅");
+    } catch (error: any) {
+      console.error(error);
+      setMessage(`Payroll Cycle konnte nicht gespeichert werden: ${error.message}`);
+    } finally {
+      setSavingCycle(false);
+    }
+  }
+
+  async function updateCycleStatus(status: PayrollCycleStatus) {
+    const update: Partial<PayrollCycle> = {
+      status,
+    };
+
+    if (status === "approved") {
+      update.approvedAt = new Date().toISOString();
+    }
+
+    if (status === "closed") {
+      update.closedAt = new Date().toISOString();
+    }
+
+    await saveCycle(update);
+  }
+
+  async function updateStepStatus(
+    stepKey: string,
+    status: PayrollCycleStepStatus
+  ) {
+    if (!cycle) return;
+
+    const updatedSteps = cycle.steps.map((step) =>
+      step.key === stepKey
+        ? {
+            ...step,
+            status,
+          }
+        : step
+    );
+
+    await saveCycle({ steps: updatedSteps });
   }
 
   useEffect(() => {
@@ -274,42 +427,14 @@ export default function MonthlyPage() {
     openAbsences.length === 0 &&
     openTasks.length === 0;
 
-  const payrollSteps = [
-    {
-      title: "Payroll Vorbereitung",
-      status:
-        employeesWithMissingData.length === 0 ? "completed" : "open",
-      description:
-        employeesWithMissingData.length === 0
-          ? "Alle aktiven Mitarbeiter haben keine offenen Pflichtangaben."
-          : `${employeesWithMissingData.length} Mitarbeiter mit offenen Pflichtangaben.`,
-      href: `/dashboard/${companyId}/employees`,
-    },
-    {
-      title: "Fehlzeiten prüfen",
-      status: openAbsences.length === 0 ? "completed" : "open",
-      description:
-        openAbsences.length === 0
-          ? "Keine offenen Fehlzeiten im ausgewählten Monat."
-          : `${openAbsences.length} offene Fehlzeiten müssen geprüft werden.`,
-      href: `/dashboard/${companyId}/absences`,
-    },
-    {
-      title: "Variable Daten",
-      status: "open",
-      description:
-        "Bonus, Zuschläge, Überstunden und Einmalzahlungen prüfen.",
-      href: `/dashboard/${companyId}/payroll`,
-    },
-    {
-      title: "Payroll Freigabe",
-      status: payrollReady ? "completed" : "open",
-      description: payrollReady
-        ? "Der Monat ist nach aktuellem Datenstand payroll-ready."
-        : "Vor der Freigabe sind noch offene Punkte zu prüfen.",
-      href: `/dashboard/${companyId}/payroll`,
-    },
-  ];
+  useEffect(() => {
+    if (!cycle || loading) return;
+
+    if (cycle.payrollReady !== payrollReady) {
+      saveCycle({ payrollReady });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [payrollReady, loading]);
 
   const cards = [
     {
@@ -360,7 +485,7 @@ export default function MonthlyPage() {
       </div>
 
       {message && (
-        <p className="rounded-xl bg-red-50 p-4 text-sm text-red-700">
+        <p className="rounded-xl bg-gray-50 p-4 text-sm text-gray-700">
           {message}
         </p>
       )}
@@ -407,10 +532,105 @@ export default function MonthlyPage() {
           </button>
 
           <p className="text-sm text-gray-500">
-            Zeitraum: {startIso} bis {endIso}
+            Zeitraum: {startIso} bis {endIso} · Cycle: {cycleId}
           </p>
         </div>
       </section>
+
+      {cycle && (
+        <section className="rounded-2xl bg-white p-6 shadow">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="text-sm text-gray-500">Payroll Cycle</p>
+
+              <h2 className="mt-1 text-2xl font-bold">
+                {months[selectedMonth]} {selectedYear}
+              </h2>
+
+              <p className="mt-2 text-sm text-gray-600">
+                Persistenter Monatslauf mit Historie, Status und Freigabe.
+              </p>
+            </div>
+
+            <span
+              className={`rounded-full px-4 py-2 text-sm font-medium ${getStatusClass(
+                cycle.status
+              )}`}
+            >
+              {getStatusLabel(cycle.status)}
+            </span>
+          </div>
+
+          <div className="mt-5 grid gap-4 md:grid-cols-3">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">
+                Cycle Status
+              </label>
+
+              <select
+                value={cycle.status}
+                onChange={(e) =>
+                  updateCycleStatus(e.target.value as PayrollCycleStatus)
+                }
+                className="w-full rounded-xl border p-3"
+              >
+                {cycleStatuses.map((status) => (
+                  <option key={status.value} value={status.value}>
+                    {status.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">
+                Cutoff Date
+              </label>
+
+              <input
+                type="date"
+                value={cycle.cutoffDate || ""}
+                onChange={(e) => saveCycle({ cutoffDate: e.target.value })}
+                className="w-full rounded-xl border p-3"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">
+                Payroll Ready
+              </label>
+
+              <div
+                className={`rounded-xl p-3 font-medium ${
+                  payrollReady
+                    ? "bg-green-50 text-green-800"
+                    : "bg-gray-100 text-gray-800"
+                }`}
+              >
+                {payrollReady ? "Ja" : "Nein"}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-5">
+            <label className="mb-1 block text-sm font-medium text-gray-700">
+              Notizen
+            </label>
+
+            <textarea
+              value={cycle.notes || ""}
+              onChange={(e) => setCycle({ ...cycle, notes: e.target.value })}
+              onBlur={() => saveCycle({ notes: cycle.notes || "" })}
+              className="min-h-24 w-full rounded-xl border p-3"
+              placeholder="Interne Notizen zum Monatslauf"
+            />
+          </div>
+
+          {savingCycle && (
+            <p className="mt-3 text-sm text-gray-500">Speichert...</p>
+          )}
+        </section>
+      )}
 
       {loading ? (
         <section className="rounded-2xl bg-white p-6 shadow">
@@ -487,55 +707,71 @@ export default function MonthlyPage() {
             </div>
           </section>
 
-          <section className="rounded-2xl bg-white p-6 shadow">
-            <div className="mb-5 flex items-center justify-between">
-              <div>
-                <h2 className="text-xl font-bold">Payroll Workflow</h2>
+          {cycle && (
+            <section className="rounded-2xl bg-white p-6 shadow">
+              <div className="mb-5 flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-bold">Payroll Workflow</h2>
 
-                <p className="text-sm text-gray-600">
-                  Status der monatlichen Lohnabrechnung.
-                </p>
+                  <p className="text-sm text-gray-600">
+                    Status der monatlichen Lohnabrechnung.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => updateCycleStatus("in_progress")}
+                  className="rounded-xl bg-blue-900 px-4 py-2 text-sm font-medium text-white hover:bg-blue-800"
+                >
+                  Payroll starten
+                </button>
               </div>
 
-              <button className="rounded-xl bg-blue-900 px-4 py-2 text-sm font-medium text-white hover:bg-blue-800">
-                Payroll starten
-              </button>
-            </div>
+              <div className="space-y-4">
+                {(cycle.steps || []).map((step, index) => (
+                  <div
+                    key={step.key}
+                    className="rounded-xl border border-gray-200 p-5"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-4">
+                      <div>
+                        <p className="text-xs uppercase tracking-wide text-gray-500">
+                          Schritt {index + 1}
+                        </p>
 
-            <div className="space-y-4">
-              {payrollSteps.map((step, index) => (
-                <Link
-                  href={step.href}
-                  key={step.title}
-                  className="block rounded-xl border border-gray-200 p-5 hover:bg-gray-50"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-4">
-                    <div>
-                      <p className="text-xs uppercase tracking-wide text-gray-500">
-                        Schritt {index + 1}
-                      </p>
+                        <h3 className="mt-1 text-lg font-semibold">
+                          {step.title}
+                        </h3>
 
-                      <h3 className="mt-1 text-lg font-semibold">
-                        {step.title}
-                      </h3>
+                        <p className="mt-1 text-sm text-gray-600">
+                          {step.description}
+                        </p>
+                      </div>
 
-                      <p className="mt-1 text-sm text-gray-600">
-                        {step.description}
-                      </p>
+                      <select
+                        value={step.status}
+                        onChange={(e) =>
+                          updateStepStatus(
+                            step.key,
+                            e.target.value as PayrollCycleStepStatus
+                          )
+                        }
+                        className={`rounded-full px-3 py-2 text-xs font-medium ${getStatusClass(
+                          step.status
+                        )}`}
+                      >
+                        {stepStatuses.map((status) => (
+                          <option key={status.value} value={status.value}>
+                            {status.label}
+                          </option>
+                        ))}
+                      </select>
                     </div>
-
-                    <span
-                      className={`rounded-full px-3 py-1 text-xs font-medium ${getStatusClass(
-                        step.status
-                      )}`}
-                    >
-                      {getStatusLabel(step.status)}
-                    </span>
                   </div>
-                </Link>
-              ))}
-            </div>
-          </section>
+                ))}
+              </div>
+            </section>
+          )}
 
           <section className="grid gap-6 lg:grid-cols-2">
             <div className="rounded-2xl bg-white p-6 shadow">

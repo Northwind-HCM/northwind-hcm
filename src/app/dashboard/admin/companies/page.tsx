@@ -38,10 +38,13 @@ export default function CompaniesPage() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState("");
+  const [creatingDemo, setCreatingDemo] = useState(false);
   const [search, setSearch] = useState("");
+  const [message, setMessage] = useState("");
 
   async function loadCompanies() {
     setLoading(true);
+    setMessage("");
 
     try {
       const companiesQuery = query(
@@ -57,11 +60,42 @@ export default function CompaniesPage() {
       })) as Company[];
 
       setCompanies(data);
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      alert("Mandanten konnten nicht geladen werden.");
+      setMessage(`Mandanten konnten nicht geladen werden: ${error.message}`);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function createDemoCompany() {
+    const confirmed = window.confirm(
+      "Demo-Mandanten mit Testdaten erstellen?\n\nEs werden eine Demo GmbH, 10 Mitarbeiter, Aufgaben, Fehlzeiten und ein Payroll Cycle angelegt."
+    );
+
+    if (!confirmed) return;
+
+    setCreatingDemo(true);
+    setMessage("");
+
+    try {
+      const response = await fetch("/api/admin/seed-demo", {
+        method: "GET",
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || "Demo-Mandant konnte nicht erstellt werden.");
+      }
+
+      setMessage(`Demo-Mandant erstellt ✅ Company ID: ${data.companyId}`);
+      await loadCompanies();
+    } catch (error: any) {
+      console.error(error);
+      setMessage(error.message || "Demo-Mandant konnte nicht erstellt werden.");
+    } finally {
+      setCreatingDemo(false);
     }
   }
 
@@ -75,13 +109,15 @@ export default function CompaniesPage() {
     if (!confirmed) return;
 
     setDeletingId(company.id);
+    setMessage("");
 
     try {
       await deleteDoc(doc(db, "companies", company.id));
+      setMessage("Mandant gelöscht ✅");
       await loadCompanies();
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      alert("Mandant konnte nicht gelöscht werden.");
+      setMessage(`Mandant konnte nicht gelöscht werden: ${error.message}`);
     } finally {
       setDeletingId("");
     }
@@ -124,7 +160,7 @@ export default function CompaniesPage() {
           <h1 className="text-2xl font-bold">Mandanten</h1>
 
           <p className="text-gray-600">
-            Firmen verwalten, neue Mandanten anlegen und Portale vorbereiten.
+            Firmen verwalten, Demo-Daten erzeugen und Portale vorbereiten.
           </p>
         </div>
 
@@ -136,6 +172,15 @@ export default function CompaniesPage() {
             Zurück
           </Link>
 
+          <button
+            type="button"
+            disabled={creatingDemo}
+            onClick={createDemoCompany}
+            className="rounded-xl bg-green-700 px-5 py-3 font-medium text-white hover:bg-green-800 disabled:opacity-50"
+          >
+            {creatingDemo ? "Erstellt Demo..." : "Demo-Mandant erstellen"}
+          </button>
+
           <Link
             href="/dashboard/admin/companies/new"
             className="rounded-xl bg-blue-900 px-5 py-3 font-medium text-white hover:bg-blue-800"
@@ -144,6 +189,12 @@ export default function CompaniesPage() {
           </Link>
         </div>
       </div>
+
+      {message && (
+        <p className="rounded-xl bg-gray-50 p-3 text-sm text-gray-700">
+          {message}
+        </p>
+      )}
 
       <section className="rounded-2xl bg-white p-6 shadow">
         <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -243,9 +294,7 @@ export default function CompaniesPage() {
                           onClick={() => deleteCompany(company)}
                           className="rounded bg-red-50 px-3 py-2 text-xs text-red-700 hover:bg-red-100 disabled:opacity-50"
                         >
-                          {deletingId === company.id
-                            ? "Löscht..."
-                            : "Löschen"}
+                          {deletingId === company.id ? "Löscht..." : "Löschen"}
                         </button>
                       </div>
                     </td>

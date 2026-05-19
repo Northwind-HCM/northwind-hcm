@@ -156,25 +156,34 @@ const tabs: { key: TabKey; label: string }[] = [
 function calculateCompleteness(data: typeof initialFormData) {
   const missing: string[] = [];
 
-  if (!data.firstName) missing.push("Vorname");
-  if (!data.lastName) missing.push("Nachname");
-  if (!data.entryDate) missing.push("Eintrittsdatum");
-  if (!data.employmentType) missing.push("Beschäftigungsart");
   if (!data.taxId) missing.push("Steuer-ID");
   if (!data.socialSecurityNumber) missing.push("Sozialversicherungsnummer");
   if (!data.healthInsurance) missing.push("Krankenkasse");
   if (!data.iban) missing.push("IBAN");
   if (!data.hasChildrenForPV) missing.push("Kinder/Pflegeversicherung");
 
+  const hardMissing: string[] = [];
+
+  if (!data.firstName) hardMissing.push("Vorname");
+  if (!data.lastName) hardMissing.push("Nachname");
+  if (!data.entryDate) hardMissing.push("Eintrittsdatum");
+  if (!data.employmentType) hardMissing.push("Beschäftigungsart");
+
   let status = "complete";
 
-  if (missing.length > 0) status = "incomplete";
+  if (missing.length > 0) {
+    status = "incomplete";
+  }
 
-  if (!data.firstName || !data.lastName || !data.entryDate || !data.employmentType) {
+  if (hardMissing.length > 0) {
     status = "draft";
   }
 
-  return { status, missingFields: missing };
+  return {
+    status,
+    missingFields: missing,
+    hardMissingFields: hardMissing,
+  };
 }
 
 export default function EmployeeDetailForm({
@@ -189,11 +198,19 @@ export default function EmployeeDetailForm({
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   useEffect(() => {
     async function loadEmployee() {
       try {
-        const employeeRef = doc(db, "companies", companyId, "employees", employeeId);
+        const employeeRef = doc(
+          db,
+          "companies",
+          companyId,
+          "employees",
+          employeeId
+        );
+
         const employeeSnap = await getDoc(employeeRef);
 
         const employeesSnap = await getDocs(
@@ -212,6 +229,8 @@ export default function EmployeeDetailForm({
             ...initialFormData,
             ...(employeeSnap.data() as Partial<typeof initialFormData>),
           });
+
+          setHasUnsavedChanges(false);
         } else {
           setMessage("Mitarbeiter nicht gefunden ❌");
         }
@@ -226,6 +245,49 @@ export default function EmployeeDetailForm({
     loadEmployee();
   }, [companyId, employeeId]);
 
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!hasUnsavedChanges) return;
+
+      event.preventDefault();
+      event.returnValue = "";
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [hasUnsavedChanges]);
+
+  useEffect(() => {
+    const handleDocumentClick = (event: MouseEvent) => {
+      if (!hasUnsavedChanges) return;
+
+      const target = event.target as HTMLElement | null;
+      const anchor = target?.closest("a[href]") as HTMLAnchorElement | null;
+
+      if (!anchor) return;
+      if (anchor.target === "_blank") return;
+      if (anchor.href === window.location.href) return;
+
+      const confirmed = window.confirm(
+        "Es gibt ungespeicherte Änderungen. Möchtest du die Seite wirklich verlassen?"
+      );
+
+      if (!confirmed) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    };
+
+    document.addEventListener("click", handleDocumentClick, true);
+
+    return () => {
+      document.removeEventListener("click", handleDocumentClick, true);
+    };
+  }, [hasUnsavedChanges]);
+
   function hasError(field: string) {
     return validationErrors.includes(field);
   }
@@ -237,6 +299,8 @@ export default function EmployeeDetailForm({
       ...prev,
       [key]: value as never,
     }));
+
+    setHasUnsavedChanges(true);
 
     setValidationErrors((prev) => prev.filter((field) => field !== key));
   }
@@ -254,6 +318,8 @@ export default function EmployeeDetailForm({
         : "",
       managerEmail: manager?.email || "",
     }));
+
+    setHasUnsavedChanges(true);
   }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -267,42 +333,30 @@ export default function EmployeeDetailForm({
     setSaving(true);
     setMessage("");
 
-    const missingFields: string[] = [];
+    const hardMissingFields: string[] = [];
 
-    if (!formData.firstName) missingFields.push("firstName");
-    if (!formData.lastName) missingFields.push("lastName");
-    if (!formData.entryDate) missingFields.push("entryDate");
-    if (!formData.employmentType) missingFields.push("employmentType");
-    if (!formData.taxId) missingFields.push("taxId");
-    if (!formData.socialSecurityNumber) missingFields.push("socialSecurityNumber");
-    if (!formData.healthInsurance) missingFields.push("healthInsurance");
-    if (!formData.iban) missingFields.push("iban");
-    if (!formData.hasChildrenForPV) missingFields.push("hasChildrenForPV");
+    if (!formData.firstName) hardMissingFields.push("firstName");
+    if (!formData.lastName) hardMissingFields.push("lastName");
+    if (!formData.entryDate) hardMissingFields.push("entryDate");
+    if (!formData.employmentType) hardMissingFields.push("employmentType");
 
-    setValidationErrors(missingFields);
+    setValidationErrors(hardMissingFields);
 
-    if (missingFields.length > 0) {
+    if (hardMissingFields.length > 0) {
       setMessage(
-        "Bitte alle Pflichtfelder vervollständigen. Fehlende Felder wurden markiert."
+        "Bitte die zwingenden Pflichtfelder vervollständigen. Steuer-ID, SV-Nummer, Krankenkasse und IBAN können später nachgereicht werden."
       );
 
-      if (missingFields.includes("firstName") || missingFields.includes("lastName")) {
+      if (
+        hardMissingFields.includes("firstName") ||
+        hardMissingFields.includes("lastName")
+      ) {
         setActiveTab("personal");
       } else if (
-        missingFields.includes("entryDate") ||
-        missingFields.includes("employmentType")
+        hardMissingFields.includes("entryDate") ||
+        hardMissingFields.includes("employmentType")
       ) {
         setActiveTab("employment");
-      } else if (missingFields.includes("taxId")) {
-        setActiveTab("tax");
-      } else if (
-        missingFields.includes("socialSecurityNumber") ||
-        missingFields.includes("healthInsurance") ||
-        missingFields.includes("hasChildrenForPV")
-      ) {
-        setActiveTab("social");
-      } else if (missingFields.includes("iban")) {
-        setActiveTab("bank");
       }
 
       setSaving(false);
@@ -318,13 +372,24 @@ export default function EmployeeDetailForm({
           ...formData,
           status: completeness.status,
           missingFields: completeness.missingFields,
+          hardMissingFields: completeness.hardMissingFields,
           updatedAt: new Date().toISOString(),
         },
         { merge: true }
       );
 
       setValidationErrors([]);
-      setMessage("Mitarbeiter erfolgreich gespeichert ✅");
+      setHasUnsavedChanges(false);
+
+      if (completeness.missingFields.length > 0) {
+        setMessage(
+          `Mitarbeiter gespeichert ✅ Noch offen für Payroll: ${completeness.missingFields.join(
+            ", "
+          )}`
+        );
+      } else {
+        setMessage("Mitarbeiter erfolgreich gespeichert ✅");
+      }
     } catch (error: any) {
       console.error(error);
       setMessage(`Fehler beim Speichern ❌ ${error.message}`);
@@ -348,6 +413,12 @@ export default function EmployeeDetailForm({
           }`}
         >
           {message}
+        </div>
+      )}
+
+      {hasUnsavedChanges && !readOnly && (
+        <div className="rounded-xl bg-yellow-50 p-4 text-sm text-yellow-900">
+          Es gibt ungespeicherte Änderungen. Bitte speichern, bevor du die Seite verlässt.
         </div>
       )}
 
@@ -441,31 +512,27 @@ export default function EmployeeDetailForm({
 
           {activeTab === "tax" && (
             <Section title="Steuerdaten">
-              <TextField error={hasError("taxId")} readOnly={readOnly} label="Steuer-ID" value={formData.taxId} onChange={(value) => updateField("taxId", value)} />
-
+              <TextField readOnly={readOnly} label="Steuer-ID" value={formData.taxId} onChange={(value) => updateField("taxId", value)} />
               <SelectField readOnly={readOnly} label="Steuerklasse" value={formData.taxClass} onChange={(value) => updateField("taxClass", value)} options={[["1", "1"], ["2", "2"], ["3", "3"], ["4", "4"], ["5", "5"], ["6", "6"]]} />
-
               <TextField readOnly={readOnly} label="Faktor" value={formData.taxFactor} onChange={(value) => updateField("taxFactor", value)} />
               <TextField readOnly={readOnly} label="Konfession" value={formData.churchTax} onChange={(value) => updateField("churchTax", value)} />
               <TextField readOnly={readOnly} label="Konfession Ehegatte" value={formData.spouseChurchTax} onChange={(value) => updateField("spouseChurchTax", value)} />
               <TextField readOnly={readOnly} label="Kinderfreibetrag" value={formData.childAllowance} onChange={(value) => updateField("childAllowance", value)} />
-
               <SelectField readOnly={readOnly} label="Haupt-/Nebenarbeitgeber" value={formData.mainEmployer} onChange={(value) => updateField("mainEmployer", value)} options={[["main", "Hauptarbeitgeber"], ["secondary", "Nebenarbeitgeber"]]} />
             </Section>
           )}
 
           {activeTab === "social" && (
             <Section title="Sozialversicherung / Krankenkasse">
-              <TextField error={hasError("socialSecurityNumber")} readOnly={readOnly} label="Sozialversicherungsnummer" value={formData.socialSecurityNumber} onChange={(value) => updateField("socialSecurityNumber", value)} />
-              <TextField error={hasError("healthInsurance")} readOnly={readOnly} label="Krankenkasse" value={formData.healthInsurance} onChange={(value) => updateField("healthInsurance", value)} />
+              <TextField readOnly={readOnly} label="Sozialversicherungsnummer" value={formData.socialSecurityNumber} onChange={(value) => updateField("socialSecurityNumber", value)} />
+              <TextField readOnly={readOnly} label="Krankenkasse" value={formData.healthInsurance} onChange={(value) => updateField("healthInsurance", value)} />
               <TextField readOnly={readOnly} label="Betriebsnummer Krankenkasse" value={formData.healthInsuranceCompanyNumber} onChange={(value) => updateField("healthInsuranceCompanyNumber", value)} />
-
               <SelectField readOnly={readOnly} label="Gesetzlich versichert?" value={formData.statutoryHealthInsurance} onChange={(value) => updateField("statutoryHealthInsurance", value)} options={[["yes", "Ja"], ["no", "Nein"]]} />
               <SelectField readOnly={readOnly} label="Freiwillig gesetzlich versichert?" value={formData.voluntaryHealthInsurance} onChange={(value) => updateField("voluntaryHealthInsurance", value)} options={[["yes", "Ja"], ["no", "Nein"]]} />
               <SelectField readOnly={readOnly} label="Privat versichert?" value={formData.privateHealthInsurance} onChange={(value) => updateField("privateHealthInsurance", value)} options={[["yes", "Ja"], ["no", "Nein"]]} />
               <TextField readOnly={readOnly} label="PKV Gesamtbeitrag KV" value={formData.privateHealthInsuranceTotalKV} onChange={(value) => updateField("privateHealthInsuranceTotalKV", value)} />
               <TextField readOnly={readOnly} label="PKV Gesamtbeitrag PV" value={formData.privateHealthInsuranceTotalPV} onChange={(value) => updateField("privateHealthInsuranceTotalPV", value)} />
-              <SelectField error={hasError("hasChildrenForPV")} readOnly={readOnly} label="Kinder für Pflegeversicherung" value={formData.hasChildrenForPV} onChange={(value) => updateField("hasChildrenForPV", value)} options={[["yes", "Ja"], ["no", "Nein"]]} />
+              <SelectField readOnly={readOnly} label="Kinder für Pflegeversicherung" value={formData.hasChildrenForPV} onChange={(value) => updateField("hasChildrenForPV", value)} options={[["yes", "Ja"], ["no", "Nein"]]} />
             </Section>
           )}
 
@@ -483,7 +550,7 @@ export default function EmployeeDetailForm({
 
           {activeTab === "bank" && (
             <Section title="Bankdaten">
-              <TextField error={hasError("iban")} readOnly={readOnly} label="IBAN" value={formData.iban} onChange={(value) => updateField("iban", value)} />
+              <TextField readOnly={readOnly} label="IBAN" value={formData.iban} onChange={(value) => updateField("iban", value)} />
               <TextField readOnly={readOnly} label="BIC" value={formData.bic} onChange={(value) => updateField("bic", value)} />
               <TextField readOnly={readOnly} label="Bank" value={formData.bank} onChange={(value) => updateField("bank", value)} />
             </Section>
@@ -523,7 +590,6 @@ export default function EmployeeDetailForm({
                   onChange={(e) => updateManager(e.target.value)}
                 >
                   <option value="">Bitte auswählen</option>
-
                   {employees
                     .filter((employee) => employee.id !== employeeId)
                     .map((employee) => (

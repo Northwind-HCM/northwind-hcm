@@ -15,6 +15,7 @@ type CompanySettings = {
   documentUploadEnabled?: boolean;
   absenceWorkflowEnabled?: boolean;
   defaultPayrollCutoffDay?: number;
+  defaultLocale?: "de" | "en";
 };
 
 export default function CompanySettingsPage() {
@@ -35,7 +36,9 @@ export default function CompanySettingsPage() {
           setSettings(snap.data() as CompanySettings);
         }
       } catch (error: any) {
-        setMessage(error.message || "Einstellungen konnten nicht geladen werden.");
+        setMessage(
+          error.message || "Einstellungen konnten nicht geladen werden."
+        );
       } finally {
         setLoading(false);
       }
@@ -67,12 +70,15 @@ export default function CompanySettingsPage() {
         documentUploadEnabled: settings.documentUploadEnabled ?? true,
         absenceWorkflowEnabled: settings.absenceWorkflowEnabled ?? true,
         defaultPayrollCutoffDay: Number(settings.defaultPayrollCutoffDay || 25),
+        defaultLocale: settings.defaultLocale || "de",
         updatedAt: new Date().toISOString(),
       });
 
       setMessage("Einstellungen gespeichert ✅");
     } catch (error: any) {
-      setMessage(error.message || "Einstellungen konnten nicht gespeichert werden.");
+      setMessage(
+        error.message || "Einstellungen konnten nicht gespeichert werden."
+      );
     } finally {
       setSaving(false);
     }
@@ -91,6 +97,7 @@ export default function CompanySettingsPage() {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold">Einstellungen</h1>
+
           <p className="text-gray-600">
             Portal-, Payroll- und Self-Service-Einstellungen.
           </p>
@@ -115,26 +122,18 @@ export default function CompanySettingsPage() {
           <h2 className="text-xl font-semibold">
             {settings.companyName || "Mandant"}
           </h2>
+
           <p className="text-sm text-gray-500">Mandanten-ID: {companyId}</p>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-4 md:grid-cols-3">
           <label className="block space-y-1">
             <span className="text-sm font-medium text-gray-700">Status</span>
+
             <select
               className="w-full rounded-xl border p-3"
               value={settings.status || "setup"}
-              onChange={(e) =>
-                <select
-  className="w-full rounded-xl border p-3"
-  value={settings.status || "setup"}
-  onChange={(e) => updateField("status", e.target.value)}
->
-  <option value="setup">Setup</option>
-  <option value="active">Aktiv</option>
-  <option value="inactive">Inaktiv</option>
-</select>
-              }
+              onChange={(e) => updateField("status", e.target.value)}
             >
               <option value="setup">Setup</option>
               <option value="active">Aktiv</option>
@@ -144,8 +143,24 @@ export default function CompanySettingsPage() {
 
           <label className="block space-y-1">
             <span className="text-sm font-medium text-gray-700">
+              Standardsprache
+            </span>
+
+            <select
+              className="w-full rounded-xl border p-3"
+              value={settings.defaultLocale || "de"}
+              onChange={(e) => updateField("defaultLocale", e.target.value)}
+            >
+              <option value="de">Deutsch</option>
+              <option value="en">English</option>
+            </select>
+          </label>
+
+          <label className="block space-y-1">
+            <span className="text-sm font-medium text-gray-700">
               Payroll Cutoff Tag
             </span>
+
             <input
               type="number"
               min={1}
@@ -218,6 +233,7 @@ function Toggle({
   return (
     <label className="flex items-center justify-between rounded-xl border p-4">
       <span className="font-medium text-gray-800">{label}</span>
+
       <input
         type="checkbox"
         checked={checked}

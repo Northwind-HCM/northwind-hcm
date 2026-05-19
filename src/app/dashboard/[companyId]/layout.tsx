@@ -1,5 +1,6 @@
-import DashboardSidebar from "../../../components/DashboardSidebar";
-import DashboardTopbar from "../../../components/DashboardTopbar";
+import CompanyAccessGuard from "@/components/CompanyAccessGuard";
+import DashboardSidebar from "@/components/DashboardSidebar";
+import DashboardTopbar from "@/components/DashboardTopbar";
 
 export default async function DashboardLayout({
   children,
@@ -11,16 +12,18 @@ export default async function DashboardLayout({
   const { companyId } = await params;
 
   return (
-    <div className="flex min-h-screen bg-gray-100">
-      <DashboardSidebar companyId={companyId} />
+    <CompanyAccessGuard companyId={companyId}>
+      <div className="flex min-h-screen bg-gray-100">
+        <DashboardSidebar companyId={companyId} />
 
-      <div className="flex flex-1 flex-col">
-        <DashboardTopbar companyId={companyId} />
+        <div className="flex flex-1 flex-col">
+          <DashboardTopbar companyId={companyId} />
 
-        <main className="flex-1 px-8 py-6">
-          <div className="mx-auto max-w-7xl">{children}</div>
-        </main>
+          <main className="flex-1 px-8 py-6">
+            <div className="mx-auto max-w-7xl">{children}</div>
+          </main>
+        </div>
       </div>
-    </div>
+    </CompanyAccessGuard>
   );
 }

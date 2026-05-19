@@ -32,11 +32,12 @@ type EmployeeData = {
   socialSecurityNumber?: string;
   healthInsurance?: string;
   iban?: string;
-  [key: string]: any;
+  [key: string]: unknown;
 };
 
 type DocumentData = {
   documentType?: string;
+  [key: string]: unknown;
 };
 
 type Absence = {
@@ -167,12 +168,18 @@ export default function EmployeeSelfServicePage({
   }, [companyId, employeeId]);
 
   const employeeCheck = useMemo(
-    () => (employee ? checkEmployeeReadiness(employee) : { ready: false, missing: [] }),
+    () =>
+      employee
+        ? checkEmployeeReadiness(employee)
+        : { ready: false, missing: [] as string[] },
     [employee]
   );
 
   const documentCheck = useMemo(
-    () => (employee ? checkDocuments(employee, documents) : { ready: false, missing: [] }),
+    () =>
+      employee
+        ? checkDocuments(employee, documents)
+        : { ready: false, missing: [] as string[] },
     [employee, documents]
   );
 
@@ -189,7 +196,9 @@ export default function EmployeeSelfServicePage({
   }, [employee]);
 
   const totalRequired =
-    employeeCheck.missing.length + documentCheck.missing.length + completedItems.length;
+    employeeCheck.missing.length +
+    documentCheck.missing.length +
+    completedItems.length;
 
   const progress =
     totalRequired === 0
@@ -201,7 +210,11 @@ export default function EmployeeSelfServicePage({
 
     if (!employee) return;
 
-    if (!absenceForm.absenceType || !absenceForm.startDate || !absenceForm.endDate) {
+    if (
+      !absenceForm.absenceType ||
+      !absenceForm.startDate ||
+      !absenceForm.endDate
+    ) {
       setMessage("Bitte Art und Zeitraum der Abwesenheit ausfüllen.");
       return;
     }
@@ -221,7 +234,9 @@ export default function EmployeeSelfServicePage({
 
       await addDoc(collection(db, "companies", companyId, "absences"), {
         employeeId,
-        employeeName: `${employee.firstName || ""} ${employee.lastName || ""}`.trim(),
+        employeeName: `${employee.firstName || ""} ${
+          employee.lastName || ""
+        }`.trim(),
         employeeEmail: employee.email || "",
 
         absenceType: absenceForm.absenceType,
@@ -238,17 +253,9 @@ export default function EmployeeSelfServicePage({
             : "not_required",
 
         payrollRelevant: true,
-        requiresDocument:
-          absenceForm.absenceType === "child_sickness" ||
-          absenceForm.absenceType === "unpaid_leave",
-
-        approvalRequired: true,
-        approvalLevel: 1,
         status: "requested",
-
-        createdBy: employee.authUid || employee.userId || "",
         createdAt: serverTimestamp(),
-        updatedAt: new Date().toISOString(),
+        updatedAt: serverTimestamp(),
       });
 
       setAbsenceForm({
@@ -258,11 +265,11 @@ export default function EmployeeSelfServicePage({
         notes: "",
       });
 
-      setMessage("Abwesenheit wurde beantragt ✅");
+      setMessage("Abwesenheit wurde eingereicht.");
 
-      const currentUser = auth.currentUser;
-      if (currentUser) {
-        await loadEmployeeData(currentUser.uid);
+      const user = auth.currentUser;
+      if (user) {
+        await loadEmployeeData(user.uid);
       }
     } catch (error: any) {
       console.error(error);
@@ -274,335 +281,342 @@ export default function EmployeeSelfServicePage({
 
   async function handleLogout() {
     await signOut(auth);
-    document.cookie = "uid=; path=/; max-age=0; SameSite=Lax";
-    window.location.href = "/login";
+    window.location.href = "/employee/login";
   }
 
   if (loading) {
-    return <p className="p-6">Prüfe Zugriff...</p>;
+    return (
+      <main className="min-h-screen bg-gray-50 p-6">
+        <section className="rounded-2xl bg-white p-6 shadow">
+          Lade Self Service...
+        </section>
+      </main>
+    );
   }
 
   if (!allowed || !employee) {
     return (
       <main className="min-h-screen bg-gray-50 p-6">
-        <div className="mx-auto max-w-4xl rounded-2xl bg-white p-6 shadow">
-          <p className="text-red-700">
-            Zugriff verweigert. Sie dürfen diese Daten nicht einsehen.
+        <section className="rounded-2xl bg-white p-6 shadow">
+          <h1 className="text-2xl font-bold">Kein Zugriff</h1>
+          <p className="mt-2 text-gray-600">
+            Du hast keinen Zugriff auf diesen Self-Service-Bereich.
           </p>
-          <Link href="/login" className="mt-4 inline-block text-blue-900 underline">
-            Zur Login-Auswahl
-          </Link>
-        </div>
+
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="mt-5 rounded-xl bg-blue-900 px-5 py-3 font-medium text-white hover:bg-blue-800"
+          >
+            Abmelden
+          </button>
+        </section>
       </main>
     );
   }
 
   return (
-    <main className="min-h-screen bg-gray-50 p-6">
-      <div className="mx-auto max-w-6xl space-y-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold">Employee Self Service</h1>
-            <p className="text-gray-600">
-              Willkommen, {employee.firstName || ""} {employee.lastName || ""}.
-            </p>
-          </div>
+    <main className="min-h-screen space-y-6 bg-gray-50 p-6">
+      <header className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <p className="text-sm font-medium text-blue-900">
+            Employee Self Service
+          </p>
 
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="rounded-xl bg-gray-100 px-5 py-3 text-sm font-medium text-gray-800 hover:bg-gray-200"
-          >
-            Logout
-          </button>
+          <h1 className="text-3xl font-bold">
+            Hallo {employee.firstName || ""} {employee.lastName || ""}
+          </h1>
+
+          <p className="mt-1 text-gray-600">
+            Hier kannst du deine Daten prüfen, Dokumente einreichen, Zeiten
+            erfassen und Abwesenheiten melden.
+          </p>
         </div>
 
-        {message && (
-          <p className="rounded-xl bg-gray-50 p-3 text-sm text-gray-700">
-            {message}
+        <button
+          type="button"
+          onClick={handleLogout}
+          className="rounded-xl bg-gray-100 px-5 py-3 font-medium text-gray-800 hover:bg-gray-200"
+        >
+          Abmelden
+        </button>
+      </header>
+
+      {message && (
+        <div className="rounded-xl bg-yellow-50 p-4 text-sm text-yellow-900">
+          {message}
+        </div>
+      )}
+
+      <section className="grid gap-4 md:grid-cols-4">
+        <div className="rounded-2xl bg-white p-5 shadow">
+          <p className="text-sm text-gray-500">Payroll Readiness</p>
+          <p className="mt-2 text-3xl font-bold">{progress}%</p>
+
+          <div className="mt-4 h-3 rounded-full bg-gray-200">
+            <div
+              className="h-full rounded-full bg-blue-900"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        </div>
+
+        <div className="rounded-2xl bg-white p-5 shadow">
+          <p className="text-sm text-gray-500">Offene Stammdaten</p>
+          <p className="mt-2 text-3xl font-bold">
+            {employeeCheck.missing.length}
           </p>
-        )}
+        </div>
 
-        <section className="grid gap-4 md:grid-cols-4">
-          <StatusCard
-            title="Onboarding"
-            value={employeeCheck.ready && documentCheck.ready ? "Vollständig" : "Offen"}
-            tone={employeeCheck.ready && documentCheck.ready ? "green" : "yellow"}
-          />
+        <div className="rounded-2xl bg-white p-5 shadow">
+          <p className="text-sm text-gray-500">Dokumentenprüfung</p>
+          <p className="mt-2 text-3xl font-bold">
+            {documentCheck.missing.length}
+          </p>
+        </div>
 
-          <StatusCard
-            title="Fortschritt"
-            value={`${progress}%`}
-            tone="blue"
-          />
+        <div className="rounded-2xl bg-white p-5 shadow">
+          <p className="text-sm text-gray-500">Abwesenheiten</p>
+          <p className="mt-2 text-3xl font-bold">{absences.length}</p>
+        </div>
+      </section>
 
-          <StatusCard
-            title="Dokumente"
-            value={String(documents.length)}
-            tone="gray"
-          />
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Link
+          href={`/employee/self-service/${companyId}/${employeeId}/documents`}
+          className="rounded-2xl bg-white p-6 shadow transition hover:shadow-lg"
+        >
+          <p className="text-sm font-medium text-blue-900">Dokumentencenter</p>
+          <h2 className="mt-2 text-xl font-semibold">Meine Dokumente</h2>
+          <p className="mt-1 text-sm text-gray-600">
+            Krankmeldungen, Kind-krank-Nachweise, Payroll-Dokumente und Dateien
+            hochladen oder abrufen.
+          </p>
+          <div className="mt-4 inline-block rounded-full bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-900">
+            Öffnen
+          </div>
+        </Link>
 
-          <StatusCard
-            title="Abwesenheiten"
-            value={String(absences.length)}
-            tone="gray"
-          />
+        <Link
+          href={`/employee/self-service/${companyId}/${employeeId}/time`}
+          className="rounded-2xl bg-white p-6 shadow transition hover:shadow-lg"
+        >
+          <p className="text-sm font-medium text-blue-900">Zeiterfassung</p>
+          <h2 className="mt-2 text-xl font-semibold">Meine Zeiten</h2>
+          <p className="mt-1 text-sm text-gray-600">
+            Arbeitszeiten, Pausen, Überstunden und Hinweise für den aktuellen
+            Payroll-Monat erfassen.
+          </p>
+          <div className="mt-4 inline-block rounded-full bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-900">
+            Öffnen
+          </div>
+        </Link>
+
+        <div className="rounded-2xl bg-white p-6 shadow">
+          <p className="text-sm font-medium text-blue-900">Status</p>
+          <h2 className="mt-2 text-xl font-semibold">Offene Punkte</h2>
+
+          {employeeCheck.missing.length === 0 &&
+          documentCheck.missing.length === 0 ? (
+            <p className="mt-2 text-sm text-green-700">
+              Deine Payroll-Daten wirken vollständig.
+            </p>
+          ) : (
+            <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-red-700">
+              {[...employeeCheck.missing, ...documentCheck.missing].map(
+                (item) => (
+                  <li key={item}>{item}</li>
+                )
+              )}
+            </ul>
+          )}
+        </div>
+
+        <div className="rounded-2xl bg-white p-6 shadow">
+          <p className="text-sm font-medium text-blue-900">Kontakt</p>
+          <h2 className="mt-2 text-xl font-semibold">Payroll Rückfragen</h2>
+          <p className="mt-1 text-sm text-gray-600">
+            Bei Fragen zu deinen Daten oder Dokumenten wende dich bitte an dein
+            HR-/Payroll-Team.
+          </p>
+        </div>
+      </section>
+
+      <section className="grid gap-6 xl:grid-cols-2">
+        <section className="rounded-2xl bg-white p-6 shadow">
+          <h2 className="text-xl font-semibold">Meine Stammdaten</h2>
+
+          <p className="mt-1 text-sm text-gray-600">
+            Prüfe deine persönlichen Angaben für Payroll und HR.
+          </p>
+
+          <div className="mt-5">
+            <EmployeeSelfServiceForm
+              companyId={companyId}
+              employeeId={employeeId}
+            />
+          </div>
         </section>
 
         <section className="rounded-2xl bg-white p-6 shadow">
-          <div className="mb-4 flex items-center justify-between">
-            <div>
-              <h2 className="text-xl font-semibold">Ihr Onboarding-Status</h2>
-              <p className="text-sm text-gray-600">
-                Hier sehen Sie, welche Angaben oder Dokumente noch fehlen.
-              </p>
-            </div>
+          <h2 className="text-xl font-semibold">
+            Dokumente aus der Personalakte
+          </h2>
 
-            <span
-              className={`rounded-full px-4 py-2 text-sm font-medium ${
-                employeeCheck.ready && documentCheck.ready
-                  ? "bg-green-100 text-green-800"
-                  : "bg-yellow-100 text-yellow-800"
-              }`}
-            >
-              {employeeCheck.ready && documentCheck.ready
-                ? "Vollständig"
-                : "Unvollständig"}
-            </span>
-          </div>
+          <p className="mt-1 text-sm text-gray-600">
+            Bestehende Dokumente aus deinem Mitarbeiterprofil.
+          </p>
 
-          <div className="mb-4">
-            <div className="mb-1 flex justify-between text-sm">
-              <span>Fortschritt</span>
-              <span>{progress}%</span>
-            </div>
-
-            <div className="h-3 rounded-full bg-gray-200">
-              <div
-                className="h-full rounded-full bg-blue-900"
-                style={{ width: `${progress}%` }}
-              />
-            </div>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2">
-            <InfoBlock
-              title="Fehlende Angaben"
-              emptyText="Alle erforderlichen Angaben sind vorhanden ✅"
-              items={employeeCheck.missing}
-            />
-
-            <InfoBlock
-              title="Fehlende Dokumente"
-              emptyText="Alle erforderlichen Dokumente sind vorhanden ✅"
-              items={documentCheck.missing}
-            />
+          <div className="mt-5">
+            <EmployeeDocuments companyId={companyId} employeeId={employeeId} />
           </div>
         </section>
+      </section>
 
-        <section className="grid gap-6 lg:grid-cols-2">
-          <form
-            onSubmit={handleAbsenceSubmit}
-            className="space-y-4 rounded-2xl bg-white p-6 shadow"
-          >
+      <section className="rounded-2xl bg-white p-6 shadow">
+        <h2 className="text-xl font-semibold">Abwesenheit beantragen</h2>
+
+        <form onSubmit={handleAbsenceSubmit} className="mt-5 space-y-4">
+          <div className="grid gap-4 md:grid-cols-3">
             <div>
-              <h2 className="text-xl font-semibold">Abwesenheit beantragen</h2>
-              <p className="text-sm text-gray-600">
-                Urlaub, Krankheit oder sonstige Abwesenheit einreichen.
-              </p>
-            </div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">
+                Art der Abwesenheit
+              </label>
 
-            <div className="grid gap-4 md:grid-cols-2">
-              <Field label="Art der Abwesenheit">
-                <select
-                  className={inputClass}
-                  value={absenceForm.absenceType}
-                  onChange={(e) =>
-                    setAbsenceForm((prev) => ({
-                      ...prev,
-                      absenceType: e.target.value,
-                    }))
-                  }
-                >
-                  {absenceTypes.map((type) => (
-                    <option key={type.value} value={type.value}>
-                      {type.label}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-
-              <Field label="Von">
-                <input
-                  type="date"
-                  className={inputClass}
-                  value={absenceForm.startDate}
-                  onChange={(e) =>
-                    setAbsenceForm((prev) => ({
-                      ...prev,
-                      startDate: e.target.value,
-                    }))
-                  }
-                  required
-                />
-              </Field>
-
-              <Field label="Bis">
-                <input
-                  type="date"
-                  className={inputClass}
-                  value={absenceForm.endDate}
-                  onChange={(e) =>
-                    setAbsenceForm((prev) => ({
-                      ...prev,
-                      endDate: e.target.value,
-                    }))
-                  }
-                  required
-                />
-              </Field>
-            </div>
-
-            <Field label="Hinweise">
-              <textarea
-                className="min-h-24 w-full rounded-xl border p-3"
-                value={absenceForm.notes}
-                onChange={(e) =>
-                  setAbsenceForm((prev) => ({
-                    ...prev,
-                    notes: e.target.value,
+              <select
+                value={absenceForm.absenceType}
+                onChange={(event) =>
+                  setAbsenceForm((previous) => ({
+                    ...previous,
+                    absenceType: event.target.value,
                   }))
                 }
-                placeholder="Optional"
-              />
-            </Field>
-
-            <button
-              type="submit"
-              disabled={savingAbsence}
-              className="rounded-xl bg-blue-900 px-5 py-3 font-semibold text-white disabled:opacity-50"
-            >
-              {savingAbsence ? "Sendet..." : "Abwesenheit beantragen"}
-            </button>
-          </form>
-
-          <section className="rounded-2xl bg-white p-6 shadow">
-            <div>
-              <h2 className="text-xl font-semibold">Meine Abwesenheiten</h2>
-              <p className="text-sm text-gray-600">
-                Status Ihrer eingereichten Abwesenheiten.
-              </p>
+                className={inputClass}
+              >
+                {absenceTypes.map((type) => (
+                  <option key={type.value} value={type.value}>
+                    {type.label}
+                  </option>
+                ))}
+              </select>
             </div>
 
-            {absences.length === 0 ? (
-              <p className="mt-4 rounded-xl border border-dashed p-6 text-center text-sm text-gray-500">
-                Noch keine Abwesenheiten vorhanden.
-              </p>
-            ) : (
-              <div className="mt-4 space-y-3">
-                {absences.slice(0, 6).map((absence) => (
-                  <div key={absence.id} className="rounded-xl border p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="font-medium">
-                          {absence.absenceLabel ||
-                            getAbsenceLabel(absence.absenceType)}
-                        </p>
-                        <p className="text-sm text-gray-600">
-                          {absence.startDate} bis {absence.endDate}
-                        </p>
-                      </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">
+                Von
+              </label>
 
+              <input
+                type="date"
+                value={absenceForm.startDate}
+                onChange={(event) =>
+                  setAbsenceForm((previous) => ({
+                    ...previous,
+                    startDate: event.target.value,
+                  }))
+                }
+                className={inputClass}
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">
+                Bis
+              </label>
+
+              <input
+                type="date"
+                value={absenceForm.endDate}
+                onChange={(event) =>
+                  setAbsenceForm((previous) => ({
+                    ...previous,
+                    endDate: event.target.value,
+                  }))
+                }
+                className={inputClass}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">
+              Hinweis
+            </label>
+
+            <textarea
+              value={absenceForm.notes}
+              onChange={(event) =>
+                setAbsenceForm((previous) => ({
+                  ...previous,
+                  notes: event.target.value,
+                }))
+              }
+              rows={4}
+              placeholder="Optionaler Hinweis an HR/Payroll"
+              className={inputClass}
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={savingAbsence}
+            className="rounded-xl bg-blue-900 px-6 py-3 font-medium text-white hover:bg-blue-800 disabled:opacity-50"
+          >
+            {savingAbsence ? "Speichert..." : "Abwesenheit einreichen"}
+          </button>
+        </form>
+      </section>
+
+      <section className="rounded-2xl bg-white p-6 shadow">
+        <h2 className="text-xl font-semibold">Meine Abwesenheiten</h2>
+
+        {absences.length === 0 ? (
+          <p className="mt-5 rounded-xl border border-dashed p-8 text-center text-sm text-gray-500">
+            Noch keine Abwesenheiten vorhanden.
+          </p>
+        ) : (
+          <div className="mt-5 overflow-x-auto rounded-xl border">
+            <table className="w-full min-w-[900px] border-collapse text-left text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="p-3 font-semibold">Art</th>
+                  <th className="p-3 font-semibold">Von</th>
+                  <th className="p-3 font-semibold">Bis</th>
+                  <th className="p-3 font-semibold">Status</th>
+                  <th className="p-3 font-semibold">Hinweis</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {absences.map((absence) => (
+                  <tr key={absence.id} className="border-t align-top">
+                    <td className="p-3 font-medium">
+                      {absence.absenceLabel ||
+                        getAbsenceLabel(absence.absenceType)}
+                    </td>
+
+                    <td className="p-3">{absence.startDate || "-"}</td>
+
+                    <td className="p-3">{absence.endDate || "-"}</td>
+
+                    <td className="p-3">
                       <span
-                        className={`rounded-full px-3 py-1 text-xs font-medium ${getStatusClass(
+                        className={`inline-block rounded-full px-3 py-1 text-xs font-medium ${getStatusClass(
                           absence.status
                         )}`}
                       >
                         {getStatusLabel(absence.status)}
                       </span>
-                    </div>
+                    </td>
 
-                    {absence.notes && (
-                      <p className="mt-2 text-sm text-gray-700">
-                        {absence.notes}
-                      </p>
-                    )}
-                  </div>
+                    <td className="p-3">{absence.notes || "-"}</td>
+                  </tr>
                 ))}
-              </div>
-            )}
-          </section>
-        </section>
-
-        <EmployeeSelfServiceForm companyId={companyId} employeeId={employeeId} />
-
-        <EmployeeDocuments companyId={companyId} employeeId={employeeId} />
-      </div>
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
     </main>
-  );
-}
-
-function StatusCard({
-  title,
-  value,
-  tone,
-}: {
-  title: string;
-  value: string;
-  tone: "green" | "yellow" | "blue" | "gray";
-}) {
-  const classes = {
-    green: "bg-green-50 text-green-900",
-    yellow: "bg-yellow-50 text-yellow-900",
-    blue: "bg-blue-50 text-blue-900",
-    gray: "bg-white text-gray-900",
-  };
-
-  return (
-    <div className={`rounded-2xl p-5 shadow ${classes[tone]}`}>
-      <p className="text-sm opacity-70">{title}</p>
-      <p className="mt-2 text-2xl font-bold">{value}</p>
-    </div>
-  );
-}
-
-function InfoBlock({
-  title,
-  items,
-  emptyText,
-}: {
-  title: string;
-  items: string[];
-  emptyText: string;
-}) {
-  return (
-    <div className="rounded-xl border p-4">
-      <h3 className="mb-2 font-semibold">{title}</h3>
-
-      {items.length === 0 ? (
-        <p className="text-sm text-green-700">{emptyText}</p>
-      ) : (
-        <ul className="list-disc space-y-1 pl-5 text-sm text-yellow-800">
-          {items.map((item) => (
-            <li key={item}>{item}</li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <label className="block space-y-1">
-      <span className="text-sm font-medium text-gray-700">{label}</span>
-      {children}
-    </label>
   );
 }

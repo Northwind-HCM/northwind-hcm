@@ -6,898 +6,701 @@ import { useParams } from "next/navigation";
 import {
   collection,
   doc,
-  getDoc,
   getDocs,
-  orderBy,
-  query,
+  serverTimestamp,
   setDoc,
   updateDoc,
-  where,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import {
-  getDefaultPayrollCycle,
-  getPayrollCycleId,
-  type PayrollCycle,
-  type PayrollCycleStep,
-  type PayrollCycleStatus,
-  type PayrollCycleStepStatus,
-} from "@/lib/payroll/payrollCycle";
 
-type Employee = {
+type PayrollMonthStatus =
+  | "open"
+  | "in_progress"
+  | "waiting_for_client"
+  | "ready_for_approval"
+  | "approved"
+  | "closed";
+
+type PayrollMonth = {
   id: string;
-  firstName?: string;
-  lastName?: string;
-  entryDate?: string;
-  exitDate?: string;
-  status?: string;
-  missingFields?: string[];
+  month: string;
+  year: number;
+  monthNumber: number;
+  status: PayrollMonthStatus;
+  missingItems: string[];
+  notes: string;
 };
 
-type Absence = {
-  id: string;
-  employeeId?: string;
-  employeeName?: string;
-  absenceType?: string;
-  absenceLabel?: string;
-  startDate?: string;
-  endDate?: string;
-  status?: string;
-  requiresEAU?: boolean;
-  bgRelevant?: boolean;
+const statusLabels: Record<PayrollMonthStatus, string> = {
+  open: "Offen",
+  in_progress: "In Bearbeitung",
+  waiting_for_client: "Warten auf Kunde",
+  ready_for_approval: "Bereit zur Freigabe",
+  approved: "Freigegeben",
+  closed: "Abgeschlossen",
 };
 
-type Task = {
-  id: string;
-  title?: string;
-  description?: string;
-  status?: string;
-  dueDate?: string;
-  employeeName?: string;
+const statusStyles: Record<PayrollMonthStatus, string> = {
+  open: "bg-gray-100 text-gray-800",
+  in_progress: "bg-blue-100 text-blue-800",
+  waiting_for_client: "bg-yellow-100 text-yellow-800",
+  ready_for_approval: "bg-purple-100 text-purple-800",
+  approved: "bg-green-100 text-green-800",
+  closed: "bg-slate-200 text-slate-800",
 };
 
-const months = [
-  "Januar",
-  "Februar",
-  "März",
-  "April",
-  "Mai",
-  "Juni",
-  "Juli",
-  "August",
-  "September",
-  "Oktober",
-  "November",
-  "Dezember",
-];
-
-const cycleStatuses: { value: PayrollCycleStatus; label: string }[] = [
-  { value: "open", label: "Offen" },
-  { value: "in_progress", label: "In Bearbeitung" },
-  { value: "ready_for_review", label: "Bereit zur Prüfung" },
-  { value: "approved", label: "Freigegeben" },
-  { value: "closed", label: "Abgeschlossen" },
-];
-
-const stepStatuses: { value: PayrollCycleStepStatus; label: string }[] = [
-  { value: "open", label: "Offen" },
-  { value: "in_progress", label: "In Bearbeitung" },
-  { value: "completed", label: "Erledigt" },
-  { value: "blocked", label: "Blockiert" },
-];
-
-function getMonthRange(year: number, month: number) {
-  const start = new Date(year, month, 1);
-  const end = new Date(year, month + 1, 0);
-
-  const startIso = start.toISOString().slice(0, 10);
-  const endIso = end.toISOString().slice(0, 10);
-
-  return { start, end, startIso, endIso };
+function getMonthName(monthNumber: number) {
+  return new Date(2026, monthNumber - 1, 1).toLocaleString("de-DE", {
+    month: "long",
+  });
 }
 
-function isEmployeeActiveInMonth(
-  employee: Employee,
-  startIso: string,
-  endIso: string
-) {
-  const entryDate = employee.entryDate || "";
-  const exitDate = employee.exitDate || "";
-
-  if (employee.status === "archived") return false;
-  if (entryDate && entryDate > endIso) return false;
-  if (exitDate && exitDate < startIso) return false;
-
-  return true;
+function createMonthId(year: number, monthNumber: number) {
+  return `${year}-${String(monthNumber).padStart(2, "0")}`;
 }
 
-function isDateRangeOverlapping(
-  itemStart?: string,
-  itemEnd?: string,
-  monthStart?: string,
-  monthEnd?: string
-) {
-  if (!itemStart || !itemEnd || !monthStart || !monthEnd) return false;
-
-  return itemStart <= monthEnd && itemEnd >= monthStart;
-}
-
-function getAbsenceTypeLabel(value?: string) {
-  if (value === "vacation") return "Urlaub";
-  if (value === "sickness_without_certificate") return "Krankheit ohne Attest";
-  if (value === "sickness_with_certificate") return "Krankheit mit Attest / eAU";
-  if (value === "child_sickness") return "Kind krank";
-  if (value === "work_accident") return "Arbeitsunfall";
-  if (value === "maternity_protection") return "Mutterschutz";
-  if (value === "parental_leave") return "Elternzeit";
-  if (value === "unpaid_leave") return "Unbezahlte Freistellung";
-  if (value === "special_leave") return "Sonderurlaub";
-  if (value === "care_leave") return "Pflegezeit";
-  if (value === "time_off_in_lieu") return "Freizeitausgleich";
-
-  return "Sonstige Abwesenheit";
-}
-
-function getStatusLabel(status?: string) {
-  if (status === "approved") return "Genehmigt";
-  if (status === "rejected") return "Abgelehnt";
-  if (status === "done") return "Erledigt";
-  if (status === "completed") return "Erledigt";
-  if (status === "in_progress") return "In Bearbeitung";
-  if (status === "ready_for_review") return "Bereit zur Prüfung";
-  if (status === "closed") return "Abgeschlossen";
-  if (status === "blocked") return "Blockiert";
-  return "Offen";
-}
-
-function getStatusClass(status?: string) {
-  if (
-    status === "approved" ||
-    status === "done" ||
-    status === "completed" ||
-    status === "closed"
-  ) {
-    return "bg-green-100 text-green-800";
-  }
-
-  if (status === "rejected" || status === "blocked") {
-    return "bg-red-100 text-red-800";
-  }
-
-  if (status === "in_progress" || status === "ready_for_review") {
-    return "bg-blue-100 text-blue-800";
-  }
-
-  return "bg-yellow-100 text-yellow-800";
-}
-
-function fullName(employee: Employee) {
-  return (
-    `${employee.firstName || ""} ${employee.lastName || ""}`.trim() ||
-    "Unbenannter Mitarbeiter"
-  );
-}
-
-export default function MonthlyPage() {
+export default function MonthlyPayrollPage() {
   const params = useParams();
-  const companyId = String(params.companyId);
 
-  const now = useMemo(() => new Date(), []);
+  const companyId = Array.isArray(params.companyId)
+    ? params.companyId[0]
+    : params.companyId;
 
-  const [selectedMonth, setSelectedMonth] = useState(now.getMonth());
-  const [selectedYear, setSelectedYear] = useState(now.getFullYear());
-
-  const [employees, setEmployees] = useState<Employee[]>([]);
-  const [absences, setAbsences] = useState<Absence[]>([]);
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [cycle, setCycle] = useState<PayrollCycle | null>(null);
-
+  const [months, setMonths] = useState<PayrollMonth[]>([]);
+  const [selectedMonthId, setSelectedMonthId] = useState("");
   const [loading, setLoading] = useState(true);
-  const [savingCycle, setSavingCycle] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const [newMissingItem, setNewMissingItem] = useState("");
+  const [notes, setNotes] = useState("");
   const [message, setMessage] = useState("");
 
-  const { startIso, endIso } = useMemo(
-    () => getMonthRange(selectedYear, selectedMonth),
-    [selectedYear, selectedMonth]
+  const selectedMonth = useMemo(
+    () => months.find((month) => month.id === selectedMonthId),
+    [months, selectedMonthId]
   );
 
-  const cycleId = useMemo(
-    () => getPayrollCycleId(selectedYear, selectedMonth),
-    [selectedYear, selectedMonth]
-  );
+  async function loadMonths() {
+    if (!companyId) return;
 
-  async function loadPayrollCycle() {
-    const cycleRef = doc(db, "companies", companyId, "payrollCycles", cycleId);
-    const cycleSnap = await getDoc(cycleRef);
-
-    if (cycleSnap.exists()) {
-      setCycle({
-        id: cycleSnap.id,
-        ...cycleSnap.data(),
-      } as PayrollCycle);
-
-      return;
-    }
-
-    const defaultCycle = getDefaultPayrollCycle({
-      year: selectedYear,
-      month: selectedMonth,
-    });
-
-    const nowIso = new Date().toISOString();
-
-    await setDoc(cycleRef, {
-      ...defaultCycle,
-      createdAt: nowIso,
-      updatedAt: nowIso,
-    });
-
-    setCycle({
-      ...defaultCycle,
-      createdAt: nowIso,
-      updatedAt: nowIso,
-    });
-  }
-
-  async function loadMonthData() {
     setLoading(true);
     setMessage("");
 
     try {
-      await loadPayrollCycle();
-
-      const employeesSnap = await getDocs(
-        collection(db, "companies", companyId, "employees")
+      const snapshot = await getDocs(
+        collection(db, "companies", companyId, "payrollMonths")
       );
 
-      const employeeData = employeesSnap.docs.map((employeeDoc) => ({
-        id: employeeDoc.id,
-        ...employeeDoc.data(),
-      })) as Employee[];
+      const items: PayrollMonth[] = snapshot.docs.map((monthDoc) => {
+        const data = monthDoc.data();
 
-      const absencesSnap = await getDocs(
-        query(
-          collection(db, "companies", companyId, "absences"),
-          orderBy("startDate", "asc")
-        )
-      );
+        return {
+          id: monthDoc.id,
+          month: data.month || "",
+          year: data.year || 0,
+          monthNumber: data.monthNumber || 0,
+          status: data.status || "open",
+          missingItems: data.missingItems || [],
+          notes: data.notes || "",
+        };
+      });
 
-      const absenceData = absencesSnap.docs.map((absenceDoc) => ({
-        id: absenceDoc.id,
-        ...absenceDoc.data(),
-      })) as Absence[];
+      const sortedItems = items.sort((a, b) => {
+        if (b.year !== a.year) return b.year - a.year;
+        return b.monthNumber - a.monthNumber;
+      });
 
-      let taskData: Task[] = [];
+      setMonths(sortedItems);
 
-      try {
-        const tasksSnap = await getDocs(
-          query(
-            collection(db, "companies", companyId, "tasks"),
-            where("status", "!=", "done")
-          )
-        );
-
-        taskData = tasksSnap.docs.map((taskDoc) => ({
-          id: taskDoc.id,
-          ...taskDoc.data(),
-        })) as Task[];
-      } catch {
-        taskData = [];
+      if (sortedItems.length > 0 && !selectedMonthId) {
+        setSelectedMonthId(sortedItems[0].id);
+        setNotes(sortedItems[0].notes || "");
       }
-
-      setEmployees(employeeData);
-      setAbsences(absenceData);
-      setTasks(taskData);
-    } catch (error: any) {
+    } catch (error) {
       console.error(error);
-      setMessage(`Monatsdaten konnten nicht geladen werden: ${error.message}`);
+      setMessage("Fehler beim Laden der Payroll-Monate.");
     } finally {
       setLoading(false);
     }
   }
 
-  async function saveCycle(update: Partial<PayrollCycle>) {
-    if (!cycle) return;
+  async function createCurrentMonth() {
+    if (!companyId) {
+      setMessage("Keine companyId gefunden.");
+      return;
+    }
 
-    setSavingCycle(true);
+    setSaving(true);
     setMessage("");
 
     try {
-      const updatedCycle = {
-        ...cycle,
-        ...update,
-        updatedAt: new Date().toISOString(),
+      const now = new Date();
+      const year = now.getFullYear();
+      const monthNumber = now.getMonth() + 1;
+      const monthId = createMonthId(year, monthNumber);
+
+      await setDoc(
+        doc(db, "companies", companyId, "payrollMonths", monthId),
+        {
+          year,
+          monthNumber,
+          month: getMonthName(monthNumber),
+          status: "open",
+          missingItems: [],
+          notes: "",
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      setMessage("Payroll-Monat wurde angelegt.");
+      setSelectedMonthId(monthId);
+      await loadMonths();
+    } catch (error) {
+      console.error(error);
+      setMessage("Monat konnte nicht angelegt werden.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function createNextMonth() {
+    if (!companyId) return;
+
+    setSaving(true);
+    setMessage("");
+
+    try {
+      const baseDate = selectedMonth
+        ? new Date(selectedMonth.year, selectedMonth.monthNumber - 1, 1)
+        : new Date();
+
+      const nextDate = new Date(
+        baseDate.getFullYear(),
+        baseDate.getMonth() + 1,
+        1
+      );
+
+      const year = nextDate.getFullYear();
+      const monthNumber = nextDate.getMonth() + 1;
+      const monthId = createMonthId(year, monthNumber);
+
+      await setDoc(
+        doc(db, "companies", companyId, "payrollMonths", monthId),
+        {
+          year,
+          monthNumber,
+          month: getMonthName(monthNumber),
+          status: "open",
+          missingItems: [],
+          notes: "",
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      setMessage("Folgemonat wurde angelegt.");
+      setSelectedMonthId(monthId);
+      await loadMonths();
+    } catch (error) {
+      console.error(error);
+      setMessage("Folgemonat konnte nicht angelegt werden.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function updateStatus(status: PayrollMonthStatus) {
+    if (!companyId || !selectedMonth) return;
+
+    setSaving(true);
+    setMessage("");
+
+    try {
+      const payload: Record<string, unknown> = {
+        status,
+        updatedAt: serverTimestamp(),
       };
 
-      await updateDoc(doc(db, "companies", companyId, "payrollCycles", cycle.id), {
-        ...update,
-        updatedAt: updatedCycle.updatedAt,
-      });
+      if (status === "approved") {
+        payload.approvedAt = serverTimestamp();
+      }
 
-      setCycle(updatedCycle);
-      setMessage("Payroll Cycle gespeichert ✅");
-    } catch (error: any) {
+      if (status === "closed") {
+        payload.closedAt = serverTimestamp();
+      }
+
+      await updateDoc(
+        doc(db, "companies", companyId, "payrollMonths", selectedMonth.id),
+        payload
+      );
+
+      setMessage("Status wurde aktualisiert.");
+      await loadMonths();
+    } catch (error) {
       console.error(error);
-      setMessage(`Payroll Cycle konnte nicht gespeichert werden: ${error.message}`);
+      setMessage("Status konnte nicht aktualisiert werden.");
     } finally {
-      setSavingCycle(false);
+      setSaving(false);
     }
   }
 
-  async function updateCycleStatus(status: PayrollCycleStatus) {
-    const update: Partial<PayrollCycle> = {
-      status,
-    };
+  async function addMissingItem() {
+    if (!companyId || !selectedMonth || !newMissingItem.trim()) return;
 
-    if (status === "approved") {
-      update.approvedAt = new Date().toISOString();
+    setSaving(true);
+    setMessage("");
+
+    try {
+      const updatedItems = [
+        ...(selectedMonth.missingItems || []),
+        newMissingItem.trim(),
+      ];
+
+      await updateDoc(
+        doc(db, "companies", companyId, "payrollMonths", selectedMonth.id),
+        {
+          missingItems: updatedItems,
+          updatedAt: serverTimestamp(),
+        }
+      );
+
+      setNewMissingItem("");
+      setMessage("Offener Punkt wurde hinzugefügt.");
+      await loadMonths();
+    } catch (error) {
+      console.error(error);
+      setMessage("Offener Punkt konnte nicht hinzugefügt werden.");
+    } finally {
+      setSaving(false);
     }
-
-    if (status === "closed") {
-      update.closedAt = new Date().toISOString();
-    }
-
-    await saveCycle(update);
   }
 
-  async function updateStepStatus(
-    stepKey: string,
-    status: PayrollCycleStepStatus
-  ) {
-    if (!cycle) return;
+  async function removeMissingItem(itemToRemove: string) {
+    if (!companyId || !selectedMonth) return;
 
-    const updatedSteps = cycle.steps.map((step) =>
-      step.key === stepKey
-        ? {
-            ...step,
-            status,
-          }
-        : step
+    setSaving(true);
+    setMessage("");
+
+    try {
+      const updatedItems = selectedMonth.missingItems.filter(
+        (item) => item !== itemToRemove
+      );
+
+      await updateDoc(
+        doc(db, "companies", companyId, "payrollMonths", selectedMonth.id),
+        {
+          missingItems: updatedItems,
+          updatedAt: serverTimestamp(),
+        }
+      );
+
+      setMessage("Offener Punkt wurde erledigt.");
+      await loadMonths();
+    } catch (error) {
+      console.error(error);
+      setMessage("Offener Punkt konnte nicht entfernt werden.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveNotes() {
+    if (!companyId || !selectedMonth) return;
+
+    setSaving(true);
+    setMessage("");
+
+    try {
+      await updateDoc(
+        doc(db, "companies", companyId, "payrollMonths", selectedMonth.id),
+        {
+          notes,
+          updatedAt: serverTimestamp(),
+        }
+      );
+
+      setMessage("Notizen wurden gespeichert.");
+      await loadMonths();
+    } catch (error) {
+      console.error(error);
+      setMessage("Notizen konnten nicht gespeichert werden.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  useEffect(() => {
+    loadMonths();
+  }, [companyId]);
+
+  useEffect(() => {
+    setNotes(selectedMonth?.notes || "");
+  }, [selectedMonth?.id]);
+
+  if (loading) {
+    return (
+      <main className="space-y-6">
+        <section className="rounded-2xl bg-white p-6 shadow">
+          Lade Monatsmodul...
+        </section>
+      </main>
     );
-
-    await saveCycle({ steps: updatedSteps });
   }
-
-  useEffect(() => {
-    loadMonthData();
-  }, [companyId, selectedMonth, selectedYear]);
-
-  const activeEmployees = useMemo(
-    () =>
-      employees.filter((employee) =>
-        isEmployeeActiveInMonth(employee, startIso, endIso)
-      ),
-    [employees, startIso, endIso]
-  );
-
-  const entries = useMemo(
-    () =>
-      employees.filter(
-        (employee) =>
-          employee.entryDate &&
-          employee.entryDate >= startIso &&
-          employee.entryDate <= endIso
-      ),
-    [employees, startIso, endIso]
-  );
-
-  const exits = useMemo(
-    () =>
-      employees.filter(
-        (employee) =>
-          employee.exitDate &&
-          employee.exitDate >= startIso &&
-          employee.exitDate <= endIso
-      ),
-    [employees, startIso, endIso]
-  );
-
-  const monthAbsences = useMemo(
-    () =>
-      absences.filter((absence) =>
-        isDateRangeOverlapping(
-          absence.startDate,
-          absence.endDate,
-          startIso,
-          endIso
-        )
-      ),
-    [absences, startIso, endIso]
-  );
-
-  const openAbsences = monthAbsences.filter(
-    (absence) => absence.status !== "approved" && absence.status !== "rejected"
-  );
-
-  const eAUAbsences = monthAbsences.filter((absence) => absence.requiresEAU);
-
-  const bgRelevantAbsences = monthAbsences.filter((absence) => absence.bgRelevant);
-
-  const employeesWithMissingData = activeEmployees.filter(
-    (employee) => employee.missingFields && employee.missingFields.length > 0
-  );
-
-  const openTasks = tasks.filter(
-    (task) => task.status !== "done" && task.status !== "completed"
-  );
-
-  const payrollReady =
-    activeEmployees.length > 0 &&
-    employeesWithMissingData.length === 0 &&
-    openAbsences.length === 0 &&
-    openTasks.length === 0;
-
-  useEffect(() => {
-    if (!cycle || loading) return;
-
-    if (cycle.payrollReady !== payrollReady) {
-      saveCycle({ payrollReady });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [payrollReady, loading]);
-
-  const cards = [
-    {
-      title: "Aktive Mitarbeiter",
-      value: String(activeEmployees.length),
-      subline: `${entries.length} Eintritt(e), ${exits.length} Austritt(e)`,
-      color: "bg-blue-50 text-blue-900",
-    },
-    {
-      title: "Offene Aufgaben",
-      value: String(openTasks.length),
-      subline: "Nicht erledigte Aufgaben",
-      color: "bg-yellow-50 text-yellow-900",
-    },
-    {
-      title: "Fehlzeiten",
-      value: String(monthAbsences.length),
-      subline: `${openAbsences.length} offen · ${eAUAbsences.length} eAU`,
-      color: "bg-red-50 text-red-900",
-    },
-    {
-      title: "Payroll Ready",
-      value: payrollReady ? "Ja" : "Nein",
-      subline: payrollReady ? "Bereit zur Freigabe" : "Offene Punkte vorhanden",
-      color: payrollReady
-        ? "bg-green-50 text-green-900"
-        : "bg-gray-100 text-gray-900",
-    },
-  ];
 
   return (
-    <main className="mx-auto max-w-7xl space-y-6 px-6 py-8">
+    <main className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold">Monatsübersicht</h1>
-
-          <p className="text-gray-600">
-            Payroll-, HR- und Monatsaktivitäten zentral verwalten.
+          <p className="text-sm font-medium text-blue-900">
+            Payroll Workspace
+          </p>
+          <h1 className="text-3xl font-bold">Monatsabrechnung</h1>
+          <p className="mt-1 text-gray-600">
+            Monatsstatus, offene Punkte, Payroll Input und Kundenfreigabe zentral verwalten.
           </p>
         </div>
 
-        <Link
-          href={`/dashboard/${companyId}`}
-          className="rounded-xl bg-gray-100 px-5 py-3 font-medium text-gray-800 hover:bg-gray-200"
-        >
-          Zurück
-        </Link>
-      </div>
-
-      {message && (
-        <p className="rounded-xl bg-gray-50 p-4 text-sm text-gray-700">
-          {message}
-        </p>
-      )}
-
-      <section className="rounded-2xl bg-white p-6 shadow">
-        <div className="flex flex-wrap items-end gap-4">
-          <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">
-              Monat
-            </label>
-
-            <select
-              value={selectedMonth}
-              onChange={(e) => setSelectedMonth(Number(e.target.value))}
-              className="rounded-xl border p-3"
-            >
-              {months.map((month, index) => (
-                <option key={month} value={index}>
-                  {month}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">
-              Jahr
-            </label>
-
-            <input
-              type="number"
-              value={selectedYear}
-              onChange={(e) => setSelectedYear(Number(e.target.value))}
-              className="rounded-xl border p-3"
-            />
-          </div>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href={`/dashboard/${companyId}/payroll`}
+            className="rounded-xl bg-gray-100 px-5 py-3 font-medium text-gray-800 hover:bg-gray-200"
+          >
+            Payroll Übersicht
+          </Link>
 
           <button
             type="button"
-            onClick={loadMonthData}
-            className="rounded-xl bg-blue-900 px-5 py-3 font-medium text-white hover:bg-blue-800"
+            onClick={createCurrentMonth}
+            disabled={saving}
+            className="rounded-xl bg-gray-100 px-5 py-3 font-medium text-gray-800 hover:bg-gray-200 disabled:opacity-50"
           >
-            Aktualisieren
+            {saving ? "Speichert..." : "Aktuellen Monat anlegen"}
           </button>
 
-          <p className="text-sm text-gray-500">
-            Zeitraum: {startIso} bis {endIso} · Cycle: {cycleId}
-          </p>
+          <button
+            type="button"
+            onClick={createNextMonth}
+            disabled={saving}
+            className="rounded-xl bg-blue-900 px-5 py-3 font-medium text-white hover:bg-blue-800 disabled:opacity-50"
+          >
+            Folgemonat anlegen
+          </button>
         </div>
-      </section>
+      </div>
 
-      {cycle && (
-        <section className="rounded-2xl bg-white p-6 shadow">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <p className="text-sm text-gray-500">Payroll Cycle</p>
-
-              <h2 className="mt-1 text-2xl font-bold">
-                {months[selectedMonth]} {selectedYear}
-              </h2>
-
-              <p className="mt-2 text-sm text-gray-600">
-                Persistenter Monatslauf mit Historie, Status und Freigabe.
-              </p>
-            </div>
-
-            <span
-              className={`rounded-full px-4 py-2 text-sm font-medium ${getStatusClass(
-                cycle.status
-              )}`}
-            >
-              {getStatusLabel(cycle.status)}
-            </span>
-          </div>
-
-          <div className="mt-5 grid gap-4 md:grid-cols-3">
-            <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">
-                Cycle Status
-              </label>
-
-              <select
-                value={cycle.status}
-                onChange={(e) =>
-                  updateCycleStatus(e.target.value as PayrollCycleStatus)
-                }
-                className="w-full rounded-xl border p-3"
-              >
-                {cycleStatuses.map((status) => (
-                  <option key={status.value} value={status.value}>
-                    {status.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">
-                Cutoff Date
-              </label>
-
-              <input
-                type="date"
-                value={cycle.cutoffDate || ""}
-                onChange={(e) => saveCycle({ cutoffDate: e.target.value })}
-                className="w-full rounded-xl border p-3"
-              />
-            </div>
-
-            <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">
-                Payroll Ready
-              </label>
-
-              <div
-                className={`rounded-xl p-3 font-medium ${
-                  payrollReady
-                    ? "bg-green-50 text-green-800"
-                    : "bg-gray-100 text-gray-800"
-                }`}
-              >
-                {payrollReady ? "Ja" : "Nein"}
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-5">
-            <label className="mb-1 block text-sm font-medium text-gray-700">
-              Notizen
-            </label>
-
-            <textarea
-              value={cycle.notes || ""}
-              onChange={(e) => setCycle({ ...cycle, notes: e.target.value })}
-              onBlur={() => saveCycle({ notes: cycle.notes || "" })}
-              className="min-h-24 w-full rounded-xl border p-3"
-              placeholder="Interne Notizen zum Monatslauf"
-            />
-          </div>
-
-          {savingCycle && (
-            <p className="mt-3 text-sm text-gray-500">Speichert...</p>
-          )}
-        </section>
+      {message && (
+        <div className="rounded-xl bg-yellow-50 p-4 text-sm text-yellow-900">
+          {message}
+        </div>
       )}
 
-      {loading ? (
-        <section className="rounded-2xl bg-white p-6 shadow">
-          Lade Monatsdaten...
+      {months.length === 0 ? (
+        <section className="rounded-2xl border border-dashed bg-white p-10 text-center shadow">
+          <h2 className="text-xl font-semibold">
+            Noch kein Payroll-Monat vorhanden
+          </h2>
+          <p className="mt-2 text-gray-600">
+            Lege den aktuellen Monat an, um den Payroll Workspace zu starten.
+          </p>
+
+          <button
+            type="button"
+            onClick={createCurrentMonth}
+            disabled={saving}
+            className="mt-6 rounded-xl bg-blue-900 px-6 py-3 font-medium text-white hover:bg-blue-800 disabled:opacity-50"
+          >
+            {saving ? "Speichert..." : "Aktuellen Monat anlegen"}
+          </button>
         </section>
       ) : (
         <>
           <section className="grid gap-4 md:grid-cols-4">
-            {cards.map((card) => (
-              <div
-                key={card.title}
-                className={`rounded-2xl p-6 shadow ${card.color}`}
-              >
-                <p className="text-sm opacity-70">{card.title}</p>
-
-                <h2 className="mt-2 text-3xl font-bold">{card.value}</h2>
-
-                <p className="mt-2 text-xs opacity-75">{card.subline}</p>
-              </div>
-            ))}
-          </section>
-
-          <section className="grid gap-6 lg:grid-cols-3">
-            <div className="rounded-2xl bg-white p-6 shadow">
-              <h2 className="text-xl font-bold">Eintritte</h2>
-
-              <p className="text-sm text-gray-600">
-                Neue Mitarbeiter im Monat.
-              </p>
-
-              <ListBlock
-                emptyText="Keine Eintritte in diesem Monat."
-                items={entries.map((employee) => ({
-                  id: employee.id,
-                  title: fullName(employee),
-                  text: employee.entryDate || "-",
-                }))}
-              />
+            <div className="rounded-2xl bg-white p-5 shadow">
+              <p className="text-sm text-gray-500">Payroll-Monate</p>
+              <p className="mt-2 text-3xl font-bold">{months.length}</p>
             </div>
 
-            <div className="rounded-2xl bg-white p-6 shadow">
-              <h2 className="text-xl font-bold">Austritte</h2>
-
-              <p className="text-sm text-gray-600">
-                Austritte im ausgewählten Monat.
+            <div className="rounded-2xl bg-white p-5 shadow">
+              <p className="text-sm text-gray-500">Ausgewählter Monat</p>
+              <p className="mt-2 text-xl font-bold">
+                {selectedMonth?.month} {selectedMonth?.year}
               </p>
-
-              <ListBlock
-                emptyText="Keine Austritte in diesem Monat."
-                items={exits.map((employee) => ({
-                  id: employee.id,
-                  title: fullName(employee),
-                  text: employee.exitDate || "-",
-                }))}
-              />
             </div>
 
-            <div className="rounded-2xl bg-white p-6 shadow">
-              <h2 className="text-xl font-bold">Offene Stammdaten</h2>
-
-              <p className="text-sm text-gray-600">
-                Pflichtangaben aktiver Mitarbeiter.
-              </p>
-
-              <ListBlock
-                emptyText="Keine offenen Stammdaten."
-                items={employeesWithMissingData.map((employee) => ({
-                  id: employee.id,
-                  title: fullName(employee),
-                  text: (employee.missingFields || []).join(", "),
-                  href: `/dashboard/${companyId}/employees/${employee.id}`,
-                }))}
-              />
-            </div>
-          </section>
-
-          {cycle && (
-            <section className="rounded-2xl bg-white p-6 shadow">
-              <div className="mb-5 flex items-center justify-between">
-                <div>
-                  <h2 className="text-xl font-bold">Payroll Workflow</h2>
-
-                  <p className="text-sm text-gray-600">
-                    Status der monatlichen Lohnabrechnung.
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => updateCycleStatus("in_progress")}
-                  className="rounded-xl bg-blue-900 px-4 py-2 text-sm font-medium text-white hover:bg-blue-800"
+            <div className="rounded-2xl bg-white p-5 shadow">
+              <p className="text-sm text-gray-500">Status</p>
+              {selectedMonth && (
+                <span
+                  className={`mt-3 inline-block rounded-full px-3 py-1 text-sm font-medium ${
+                    statusStyles[selectedMonth.status]
+                  }`}
                 >
-                  Payroll starten
-                </button>
-              </div>
+                  {statusLabels[selectedMonth.status]}
+                </span>
+              )}
+            </div>
 
-              <div className="space-y-4">
-                {(cycle.steps || []).map((step, index) => (
-                  <div
-                    key={step.key}
-                    className="rounded-xl border border-gray-200 p-5"
+            <div className="rounded-2xl bg-white p-5 shadow">
+              <p className="text-sm text-gray-500">Offene Punkte</p>
+              <p className="mt-2 text-3xl font-bold">
+                {selectedMonth?.missingItems.length || 0}
+              </p>
+            </div>
+          </section>
+
+          <section className="grid gap-6 lg:grid-cols-[320px_1fr]">
+            <aside className="rounded-2xl bg-white p-4 shadow">
+              <h2 className="mb-4 text-lg font-semibold">Monate</h2>
+
+              <div className="space-y-2">
+                {months.map((month) => (
+                  <button
+                    key={month.id}
+                    type="button"
+                    onClick={() => setSelectedMonthId(month.id)}
+                    className={`w-full rounded-xl border p-4 text-left hover:bg-gray-50 ${
+                      selectedMonthId === month.id
+                        ? "border-blue-900 bg-blue-50"
+                        : "border-gray-200 bg-white"
+                    }`}
                   >
-                    <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div className="flex items-center justify-between gap-3">
                       <div>
-                        <p className="text-xs uppercase tracking-wide text-gray-500">
-                          Schritt {index + 1}
+                        <p className="font-semibold">
+                          {month.month} {month.year}
                         </p>
-
-                        <h3 className="mt-1 text-lg font-semibold">
-                          {step.title}
-                        </h3>
-
-                        <p className="mt-1 text-sm text-gray-600">
-                          {step.description}
+                        <p className="text-xs text-gray-500">
+                          {month.missingItems.length} offene Punkte
                         </p>
                       </div>
 
-                      <select
-                        value={step.status}
-                        onChange={(e) =>
-                          updateStepStatus(
-                            step.key,
-                            e.target.value as PayrollCycleStepStatus
-                          )
-                        }
-                        className={`rounded-full px-3 py-2 text-xs font-medium ${getStatusClass(
-                          step.status
-                        )}`}
+                      <span
+                        className={`rounded-full px-2 py-1 text-xs font-medium ${
+                          statusStyles[month.status]
+                        }`}
                       >
-                        {stepStatuses.map((status) => (
-                          <option key={status.value} value={status.value}>
-                            {status.label}
-                          </option>
-                        ))}
-                      </select>
+                        {statusLabels[month.status]}
+                      </span>
                     </div>
-                  </div>
+                  </button>
                 ))}
               </div>
-            </section>
-          )}
+            </aside>
 
-          <section className="grid gap-6 lg:grid-cols-2">
-            <div className="rounded-2xl bg-white p-6 shadow">
-              <div className="mb-4 flex items-center justify-between">
-                <div>
-                  <h2 className="text-xl font-bold">Fehlzeiten</h2>
+            {selectedMonth && (
+              <section className="space-y-6">
+                <section className="rounded-2xl bg-white p-6 shadow">
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div>
+                      <h2 className="text-2xl font-bold">
+                        {selectedMonth.month} {selectedMonth.year}
+                      </h2>
+                      <p className="mt-1 text-gray-600">
+                        Steuerung des monatlichen Payroll-Prozesses.
+                      </p>
+                    </div>
 
-                  <p className="text-sm text-gray-600">
-                    Urlaub, Krankheit, eAU und BG-relevante Fälle.
+                    <span
+                      className={`rounded-full px-4 py-2 text-sm font-medium ${
+                        statusStyles[selectedMonth.status]
+                      }`}
+                    >
+                      {statusLabels[selectedMonth.status]}
+                    </span>
+                  </div>
+
+                  <div className="mt-6 grid gap-3 md:grid-cols-3">
+                    <button
+                      type="button"
+                      onClick={() => updateStatus("in_progress")}
+                      disabled={saving}
+                      className="rounded-xl bg-blue-50 px-4 py-3 text-sm font-medium text-blue-900 hover:bg-blue-100 disabled:opacity-50"
+                    >
+                      In Bearbeitung
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => updateStatus("waiting_for_client")}
+                      disabled={saving}
+                      className="rounded-xl bg-yellow-50 px-4 py-3 text-sm font-medium text-yellow-900 hover:bg-yellow-100 disabled:opacity-50"
+                    >
+                      Warten auf Kunde
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => updateStatus("ready_for_approval")}
+                      disabled={saving}
+                      className="rounded-xl bg-purple-50 px-4 py-3 text-sm font-medium text-purple-900 hover:bg-purple-100 disabled:opacity-50"
+                    >
+                      Zur Freigabe
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => updateStatus("approved")}
+                      disabled={saving}
+                      className="rounded-xl bg-green-50 px-4 py-3 text-sm font-medium text-green-900 hover:bg-green-100 disabled:opacity-50"
+                    >
+                      Freigegeben
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => updateStatus("closed")}
+                      disabled={saving}
+                      className="rounded-xl bg-slate-100 px-4 py-3 text-sm font-medium text-slate-900 hover:bg-slate-200 disabled:opacity-50"
+                    >
+                      Abschließen
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => updateStatus("open")}
+                      disabled={saving}
+                      className="rounded-xl bg-gray-100 px-4 py-3 text-sm font-medium text-gray-900 hover:bg-gray-200 disabled:opacity-50"
+                    >
+                      Wieder öffnen
+                    </button>
+                  </div>
+                </section>
+
+                <section className="grid gap-6 xl:grid-cols-2">
+                  <div className="rounded-2xl bg-white p-6 shadow">
+                    <h3 className="text-xl font-semibold">Offene Punkte</h3>
+                    <p className="mt-1 text-sm text-gray-600">
+                      Fehlende Unterlagen, Rückfragen oder Payroll-Themen für diesen Monat.
+                    </p>
+
+                    <div className="mt-5 flex gap-2">
+                      <input
+                        value={newMissingItem}
+                        onChange={(event) =>
+                          setNewMissingItem(event.target.value)
+                        }
+                        placeholder="z. B. Steuer-ID fehlt"
+                        className="w-full rounded-xl border px-4 py-3 outline-none focus:border-blue-900"
+                      />
+
+                      <button
+                        type="button"
+                        onClick={addMissingItem}
+                        disabled={saving}
+                        className="rounded-xl bg-blue-900 px-5 py-3 font-medium text-white hover:bg-blue-800 disabled:opacity-50"
+                      >
+                        Hinzufügen
+                      </button>
+                    </div>
+
+                    <div className="mt-5 space-y-2">
+                      {selectedMonth.missingItems.length === 0 ? (
+                        <p className="rounded-xl bg-green-50 p-4 text-sm text-green-800">
+                          Keine offenen Punkte vorhanden.
+                        </p>
+                      ) : (
+                        selectedMonth.missingItems.map((item) => (
+                          <div
+                            key={item}
+                            className="flex items-center justify-between gap-3 rounded-xl border p-4"
+                          >
+                            <p className="text-sm">{item}</p>
+
+                            <button
+                              type="button"
+                              onClick={() => removeMissingItem(item)}
+                              disabled={saving}
+                              className="rounded-lg bg-gray-100 px-3 py-2 text-xs hover:bg-gray-200 disabled:opacity-50"
+                            >
+                              Erledigt
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl bg-white p-6 shadow">
+                    <h3 className="text-xl font-semibold">Interne Notizen</h3>
+                    <p className="mt-1 text-sm text-gray-600">
+                      Hinweise für Payroll-Team, Kundenstatus oder Monatsbesonderheiten.
+                    </p>
+
+                    <textarea
+                      value={notes}
+                      onChange={(event) => setNotes(event.target.value)}
+                      rows={9}
+                      placeholder="z. B. Bonuszahlungen, Krankmeldungen, neue Mitarbeiter, Austritte..."
+                      className="mt-5 w-full rounded-xl border px-4 py-3 outline-none focus:border-blue-900"
+                    />
+
+                    <button
+                      type="button"
+                      onClick={saveNotes}
+                      disabled={saving}
+                      className="mt-3 rounded-xl bg-blue-900 px-5 py-3 font-medium text-white hover:bg-blue-800 disabled:opacity-50"
+                    >
+                      Notizen speichern
+                    </button>
+                  </div>
+                </section>
+
+                <section className="rounded-2xl bg-white p-6 shadow">
+                  <h3 className="text-xl font-semibold">Payroll Input</h3>
+                  <p className="mt-1 text-sm text-gray-600">
+                    Zentrale Eingaben für die monatliche Lohnabrechnung.
                   </p>
-                </div>
 
-                <Link
-                  href={`/dashboard/${companyId}/absences`}
-                  className="rounded-xl bg-gray-100 px-4 py-2 text-sm hover:bg-gray-200"
-                >
-                  Anzeigen
-                </Link>
-              </div>
+                  <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                    <Link
+                      href={`/dashboard/${companyId}/monthly/${selectedMonth.id}/time`}
+                      className="rounded-xl border p-4 hover:bg-gray-50"
+                    >
+                      <p className="font-semibold">Stunden</p>
+                      <p className="mt-1 text-sm text-gray-600">
+                        Arbeitszeiten, Überstunden und Abwesenheiten.
+                      </p>
+                    </Link>
 
-              <div className="mb-4 flex flex-wrap gap-2 text-xs">
-                <Badge label={`${openAbsences.length} offen`} />
-                <Badge label={`${eAUAbsences.length} eAU`} />
-                <Badge label={`${bgRelevantAbsences.length} BG-relevant`} />
-              </div>
+                    <Link
+                      href={`/dashboard/${companyId}/monthly/${selectedMonth.id}/variable-pay`}
+                      className="rounded-xl border p-4 hover:bg-gray-50"
+                    >
+                      <p className="font-semibold">Variable Zahlungen</p>
+                      <p className="mt-1 text-sm text-gray-600">
+                        Boni, Provisionen, Zuschläge und Einmalzahlungen.
+                      </p>
+                    </Link>
 
-              <ListBlock
-                emptyText="Keine Fehlzeiten im ausgewählten Monat."
-                items={monthAbsences.slice(0, 8).map((absence) => ({
-                  id: absence.id,
-                  title:
-                    absence.employeeName ||
-                    absence.employeeId ||
-                    "Unbekannter Mitarbeiter",
-                  text: `${
-                    absence.absenceLabel ||
-                    getAbsenceTypeLabel(absence.absenceType)
-                  } · ${absence.startDate || "-"} bis ${
-                    absence.endDate || "-"
-                  } · ${getStatusLabel(absence.status)}`,
-                }))}
-              />
-            </div>
+                    <Link
+                      href={`/dashboard/${companyId}/monthly/${selectedMonth.id}/documents`}
+                      className="rounded-xl border p-4 hover:bg-gray-50"
+                    >
+                      <p className="font-semibold">Dokumente</p>
+                      <p className="mt-1 text-sm text-gray-600">
+                        Uploads, Reports, Lohnunterlagen und Ausgaben.
+                      </p>
+                    </Link>
 
-            <div className="rounded-2xl bg-white p-6 shadow">
-              <div className="mb-4 flex items-center justify-between">
-                <div>
-                  <h2 className="text-xl font-bold">Offene Aufgaben</h2>
-
-                  <p className="text-sm text-gray-600">
-                    Payroll- und HR-Aufgaben dieses Monats.
-                  </p>
-                </div>
-
-                <Link
-                  href={`/dashboard/${companyId}/tasks`}
-                  className="rounded-xl bg-gray-100 px-4 py-2 text-sm hover:bg-gray-200"
-                >
-                  Aufgaben öffnen
-                </Link>
-              </div>
-
-              <ListBlock
-                emptyText="Keine offenen Aufgaben vorhanden."
-                items={openTasks.slice(0, 8).map((task) => ({
-                  id: task.id,
-                  title: task.title || "Offene Aufgabe",
-                  text: task.description || task.dueDate || "-",
-                }))}
-              />
-            </div>
+                    <Link
+                      href={`/dashboard/${companyId}/monthly/${selectedMonth.id}/approval`}
+                      className="rounded-xl border p-4 hover:bg-gray-50"
+                    >
+                      <p className="font-semibold">Freigabe</p>
+                      <p className="mt-1 text-sm text-gray-600">
+                        Monatliche Kundenfreigabe für die Abrechnung.
+                      </p>
+                    </Link>
+                  </div>
+                </section>
+              </section>
+            )}
           </section>
         </>
       )}
     </main>
-  );
-}
-
-function Badge({ label }: { label: string }) {
-  return (
-    <span className="rounded-full bg-gray-100 px-3 py-1 text-gray-700">
-      {label}
-    </span>
-  );
-}
-
-function ListBlock({
-  items,
-  emptyText,
-}: {
-  items: {
-    id: string;
-    title: string;
-    text: string;
-    href?: string;
-  }[];
-  emptyText: string;
-}) {
-  if (items.length === 0) {
-    return (
-      <div className="mt-4 rounded-xl border border-dashed p-8 text-center text-sm text-gray-500">
-        {emptyText}
-      </div>
-    );
-  }
-
-  return (
-    <div className="mt-4 space-y-3">
-      {items.map((item) => {
-        const content = (
-          <div className="rounded-xl border p-4">
-            <p className="font-medium">{item.title}</p>
-            <p className="mt-1 text-sm text-gray-600">{item.text}</p>
-          </div>
-        );
-
-        if (item.href) {
-          return (
-            <Link key={item.id} href={item.href} className="block hover:opacity-80">
-              {content}
-            </Link>
-          );
-        }
-
-        return <div key={item.id}>{content}</div>;
-      })}
-    </div>
   );
 }

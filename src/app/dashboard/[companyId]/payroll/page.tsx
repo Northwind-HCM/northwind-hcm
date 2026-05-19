@@ -3,17 +3,9 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import {
-  collection,
-  getDocs,
-  orderBy,
-  query,
-} from "firebase/firestore";
+import { collection, getDocs, orderBy, query } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import {
-  checkEmployeeReadiness,
-  checkDocuments,
-} from "@/lib/payrollReadiness";
+import { checkEmployeeReadiness, checkDocuments } from "@/lib/payrollReadiness";
 
 type EmployeePayrollItem = {
   id: string;
@@ -35,6 +27,8 @@ export default function PayrollPage() {
   const [message, setMessage] = useState("");
 
   async function loadPayrollReadiness() {
+    if (!companyId) return;
+
     setLoading(true);
     setMessage("");
 
@@ -50,7 +44,7 @@ export default function PayrollPage() {
         employeesSnapshot.docs.map(async (employeeDoc) => {
           const employeeData = employeeDoc.data();
 
-          let documents: any[] = [];
+          let documents: Record<string, unknown>[] = [];
 
           try {
             const documentsSnapshot = await getDocs(
@@ -88,9 +82,9 @@ export default function PayrollPage() {
       );
 
       setEmployees(employeeItems);
-    } catch (error: any) {
+    } catch (error) {
       console.error(error);
-      setMessage(`Payroll Readiness konnte nicht geladen werden: ${error.message}`);
+      setMessage("Payroll Readiness konnte nicht geladen werden.");
     } finally {
       setLoading(false);
     }
@@ -110,8 +104,7 @@ export default function PayrollPage() {
     [employees]
   );
 
-  const payrollReady =
-    employees.length > 0 && notReadyEmployees.length === 0;
+  const payrollReady = employees.length > 0 && notReadyEmployees.length === 0;
 
   const progress =
     employees.length === 0
@@ -122,7 +115,7 @@ export default function PayrollPage() {
     return (
       <main className="mx-auto max-w-7xl space-y-6 px-6 py-8">
         <section className="rounded-2xl bg-white p-6 shadow">
-          Lade Payroll Readiness...
+          Lade Payroll Workspace...
         </section>
       </main>
     );
@@ -132,10 +125,10 @@ export default function PayrollPage() {
     <main className="mx-auto max-w-7xl space-y-6 px-6 py-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold">Payroll Readiness</h1>
-
-          <p className="text-gray-600">
-            Prüfung, ob alle relevanten Daten und Dokumente für die Abrechnung vollständig sind.
+          <p className="text-sm font-medium text-blue-900">Payroll Workspace</p>
+          <h1 className="text-3xl font-bold">Monatliche Lohnabrechnung</h1>
+          <p className="mt-1 text-gray-600">
+            Zentrale Übersicht für Payroll Input, offene Aufgaben, Dokumente und Freigabe.
           </p>
         </div>
 
@@ -147,12 +140,13 @@ export default function PayrollPage() {
             Zurück
           </Link>
 
-          <Link
-            href={`/dashboard/${companyId}/monthly`}
+          <button
+            type="button"
+            onClick={loadPayrollReadiness}
             className="rounded-xl bg-blue-900 px-5 py-3 font-medium text-white hover:bg-blue-800"
           >
-            Monatsübersicht
-          </Link>
+            Aktualisieren
+          </button>
         </div>
       </div>
 
@@ -162,19 +156,36 @@ export default function PayrollPage() {
         </p>
       )}
 
+      <section className="grid gap-4 md:grid-cols-4">
+        <div className="rounded-2xl bg-white p-5 shadow">
+          <p className="text-sm text-gray-500">Payroll Status</p>
+          <p className="mt-2 text-xl font-bold">
+            {payrollReady ? "Freigabebereit" : "In Vorbereitung"}
+          </p>
+        </div>
+
+        <div className="rounded-2xl bg-white p-5 shadow">
+          <p className="text-sm text-gray-500">Mitarbeiter</p>
+          <p className="mt-2 text-3xl font-bold">{employees.length}</p>
+        </div>
+
+        <div className="rounded-2xl bg-green-50 p-5 text-green-900 shadow">
+          <p className="text-sm opacity-75">Vollständig</p>
+          <p className="mt-2 text-3xl font-bold">{readyEmployees.length}</p>
+        </div>
+
+        <div className="rounded-2xl bg-red-50 p-5 text-red-900 shadow">
+          <p className="text-sm opacity-75">Offen</p>
+          <p className="mt-2 text-3xl font-bold">{notReadyEmployees.length}</p>
+        </div>
+      </section>
+
       <section className="rounded-2xl bg-white p-6 shadow">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <p className="text-sm text-gray-500">Status Lohnabrechnung</p>
-
-            <h2 className="mt-1 text-2xl font-bold">
-              {payrollReady ? "Bereit für die Abrechnung" : "Noch nicht bereit"}
-            </h2>
-
-            <p className="mt-2 text-sm text-gray-600">
-              {payrollReady
-                ? "Alle Mitarbeiterdaten und Pflichtdokumente sind vollständig."
-                : "Es gibt noch offene Punkte, bevor die Abrechnung vorbereitet werden kann."}
+            <h2 className="text-xl font-semibold">Abrechnungsfortschritt</h2>
+            <p className="text-sm text-gray-600">
+              Daten- und Dokumentenprüfung für den aktuellen Abrechnungsmonat.
             </p>
           </div>
 
@@ -182,10 +193,10 @@ export default function PayrollPage() {
             className={`rounded-full px-4 py-2 text-sm font-medium ${
               payrollReady
                 ? "bg-green-100 text-green-800"
-                : "bg-red-100 text-red-800"
+                : "bg-yellow-100 text-yellow-800"
             }`}
           >
-            {payrollReady ? "Bereit" : "Nicht bereit"}
+            {payrollReady ? "Bereit zur Freigabe" : "Offene Punkte vorhanden"}
           </span>
         </div>
 
@@ -205,39 +216,43 @@ export default function PayrollPage() {
       </section>
 
       <section className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-2xl bg-white p-5 shadow">
-          <p className="text-sm text-gray-500">Mitarbeiter gesamt</p>
-          <p className="mt-2 text-3xl font-bold">{employees.length}</p>
-        </div>
+        <Link
+          href={`/dashboard/${companyId}/monthly`}
+          className="rounded-2xl bg-white p-6 shadow hover:bg-gray-50"
+        >
+          <h3 className="text-lg font-semibold">Monatsübersicht</h3>
+          <p className="mt-2 text-sm text-gray-600">
+            Payroll-Monate, Status, Freigabe und Monatsabschluss verwalten.
+          </p>
+        </Link>
 
-        <div className="rounded-2xl bg-green-50 p-5 text-green-900 shadow">
-          <p className="text-sm opacity-75">Bereit</p>
-          <p className="mt-2 text-3xl font-bold">{readyEmployees.length}</p>
-        </div>
+        <Link
+          href={`/dashboard/${companyId}/tasks`}
+          className="rounded-2xl bg-white p-6 shadow hover:bg-gray-50"
+        >
+          <h3 className="text-lg font-semibold">Offene Aufgaben</h3>
+          <p className="mt-2 text-sm text-gray-600">
+            Fehlende Unterlagen, Rückfragen und To-dos für die Abrechnung prüfen.
+          </p>
+        </Link>
 
-        <div className="rounded-2xl bg-red-50 p-5 text-red-900 shadow">
-          <p className="text-sm opacity-75">Nicht bereit</p>
-          <p className="mt-2 text-3xl font-bold">{notReadyEmployees.length}</p>
-        </div>
+        <Link
+          href={`/dashboard/${companyId}/employees`}
+          className="rounded-2xl bg-white p-6 shadow hover:bg-gray-50"
+        >
+          <h3 className="text-lg font-semibold">Mitarbeiterdaten</h3>
+          <p className="mt-2 text-sm text-gray-600">
+            Stammdaten, Payroll-Daten und Dokumente je Mitarbeiter bearbeiten.
+          </p>
+        </Link>
       </section>
 
       <section className="rounded-2xl bg-white p-6 shadow">
-        <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <h2 className="text-xl font-semibold">Mitarbeiterprüfung</h2>
-
-            <p className="text-sm text-gray-600">
-              Offene Stammdaten und Dokumente je Mitarbeiter.
-            </p>
-          </div>
-
-          <button
-            type="button"
-            onClick={loadPayrollReadiness}
-            className="rounded-xl bg-gray-100 px-4 py-2 text-sm font-medium hover:bg-gray-200"
-          >
-            Aktualisieren
-          </button>
+        <div className="mb-5">
+          <h2 className="text-xl font-semibold">Payroll Readiness je Mitarbeiter</h2>
+          <p className="text-sm text-gray-600">
+            Offene Stammdaten und Dokumente vor der monatlichen Abrechnung.
+          </p>
         </div>
 
         {employees.length === 0 ? (
@@ -266,9 +281,7 @@ export default function PayrollPage() {
                       </p>
 
                       {employee.email && (
-                        <p className="text-xs text-gray-500">
-                          {employee.email}
-                        </p>
+                        <p className="text-xs text-gray-500">{employee.email}</p>
                       )}
                     </td>
 
@@ -289,15 +302,13 @@ export default function PayrollPage() {
                             : "bg-red-100 text-red-800"
                         }`}
                       >
-                        {employee.ready ? "Bereit" : "Nicht bereit"}
+                        {employee.ready ? "Bereit" : "Offen"}
                       </span>
                     </td>
 
                     <td className="p-3">
                       {employee.missing.length === 0 ? (
-                        <span className="text-green-700">
-                          Alles vollständig ✅
-                        </span>
+                        <span className="text-green-700">Alles vollständig ✅</span>
                       ) : (
                         <ul className="list-disc space-y-1 pl-5 text-red-700">
                           {employee.missing.map((item) => (

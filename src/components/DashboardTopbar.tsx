@@ -5,6 +5,8 @@ import { auth, db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 
+import { getTranslations, type Locale } from "@/lib/i18n/translations";
+
 type Props = {
   companyId: string;
 };
@@ -12,6 +14,9 @@ type Props = {
 export default function DashboardTopbar({ companyId }: Props) {
   const [email, setEmail] = useState("");
   const [companyName, setCompanyName] = useState("");
+  const [locale, setLocale] = useState<Locale>("de");
+
+  const t = getTranslations(locale);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -19,8 +24,17 @@ export default function DashboardTopbar({ companyId }: Props) {
         setEmail(user.email || "");
 
         const snap = await getDoc(doc(db, "companies", companyId));
+
         if (snap.exists()) {
-          setCompanyName(snap.data().companyName || "");
+          const data = snap.data();
+
+          setCompanyName(data.companyName || "");
+
+          if (data.defaultLocale === "en") {
+            setLocale("en");
+          } else {
+            setLocale("de");
+          }
         }
       }
     });
@@ -35,24 +49,28 @@ export default function DashboardTopbar({ companyId }: Props) {
 
   return (
     <header className="flex items-center justify-between border-b bg-white px-6 py-4">
-      {/* Left */}
       <div>
-        <p className="text-sm text-gray-500">Mandant</p>
+        <p className="text-sm text-gray-500">
+          {locale === "en" ? "Client" : "Mandant"}
+        </p>
+
         <p className="font-medium text-gray-900">{companyName}</p>
       </div>
 
-      {/* Right */}
       <div className="flex items-center gap-4">
         <div className="text-right">
           <p className="text-sm font-medium text-gray-900">{email}</p>
-          <p className="text-xs text-gray-500">Administrator</p>
+
+          <p className="text-xs text-gray-500">
+            {locale === "en" ? "Administrator" : "Administrator"}
+          </p>
         </div>
 
         <button
           onClick={handleLogout}
           className="rounded-lg bg-gray-100 px-3 py-2 text-sm hover:bg-gray-200"
         >
-          Logout
+          {locale === "en" ? "Logout" : "Abmelden"}
         </button>
       </div>
     </header>
